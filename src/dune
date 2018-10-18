@@ -1,0 +1,21 @@
+(library
+ (name astlib)
+ (modules loc idents parse_errors ast astprint)
+ (libraries shared_vals adavalues))
+
+(ocamllex lexer)
+
+(menhir
+ (flags --explain --table)
+ (modules parser))
+
+(library
+ (name adaparser)
+ (modules lexer parser lexhelp readfile)
+ (libraries text adavalues astlib adabuiltins menhirLib lwt_ppx lwt.unix)
+
+ ;; Disable warning about uncomplete record pattern (because of menhir)
+ (flags (:standard -w -9))
+
+ (preprocess (pps lwt_ppx)))
+

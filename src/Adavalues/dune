@@ -1,0 +1,6 @@
+(library
+ (name adavalues)
+ (libraries unix common adaenv))
+
+
+
