@@ -25,6 +25,8 @@ let delay = Builtin ("delay",
                         | [ arg ] -> (Adaenv.delay env (get_float arg), unit)      
                         | l -> bad_nargs l 1 "delay"))
 
+let goto = Builtin ("goto", (fun _ -> assert false (* Goto hell *)))
+
 let araise = Builtin ("raise",
                       (fun _env -> function
                          | [ _arg ] -> assert false (* raise not implemented yet *)
@@ -71,3 +73,8 @@ let neg = overload [ makeun get_int mk_int "-" (fun i -> -i) ;
                      makeun get_float mk_float "-" (fun i -> -.i) ]
 
 let sconcat = makeop get_string mk_string "&" (^)
+
+
+(* Not implemented *)
+let rem = Builtin ("rem", (fun _ -> assert false))
+

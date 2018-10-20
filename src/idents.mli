@@ -30,5 +30,7 @@ val access: s
 val all: s
 val others: s
 val i_exception: s
+val i_exit: s
 
-
+val i_true: s
+  

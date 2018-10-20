@@ -66,7 +66,7 @@ and 'a declaration =
   | Funrename of fun_rename
 
   (* Type definition *)
-  | Typedef of loc_ident * type_expr
+  | Typedef of loc_ident * arg list * type_expr * (subt_constraint option)
   | Subtype of loc_ident * long_ident * (subt_constraint option)
 
   (* Variable definition *)
@@ -78,30 +78,31 @@ and 'a declaration =
 and vardef =
   { varname: loc_ident ;
     const: bool ;
-    vartype: long_ident ;
-    varrange: expr list option ;
+    vartype: type_expr ;
+    constrain: subt_constraint option ;
     vinit: expr option }
   
 (* access types are simply represented by "access".type *)
 
 (* Type definition *)
 and type_expr =
+  (* The type is kept abstract for the moment *)
+  | Abstract 
+
+  (* Type *)
+  | Typename of long_ident
+  
   (* Enumeration *)
   | Enumerate of loc_ident list
 
   (* Record type *)
-  | Record of record_field list
+  | Record of vardef list
 
   (* Array type *)
   | Array of (expr list * long_ident)
 
   (* Delta, digits *)
   | Delta of expr adavalue * expr adavalue
-
-and record_field =
-  { fname: loc_ident ;
-    ftype: long_ident ;
-    fsub: subt_constraint option }
 
 (* Range *)
 and subt_constraint =
@@ -138,12 +139,13 @@ and expr =
 
   | If of expr * expr * expr
   | While of expr * expr
+  | Exitwhen of expr
   | For of loc_ident * expr * expr
   | Declare of (def declaration) list * expr
   | Case    of expr * (when_clause list)
   | Return  of expr
   | Seq     of expr list
-  | New     of long_ident * (expr option)
+  | New     of long_ident * (expr list)
   | Is_in   of expr * expr
 
   (* Exception handler *)
@@ -163,7 +165,10 @@ and when_clause =
 
 
 (* Named expression: label => expr *)
-and nexpr = loc_ident option * expr
+and nexpr = label * expr
+
+(* List: (range1 | range2 => expr *)
+and label = expr list
 
 type 'a package =
   { package_name: long_ident ;
@@ -174,8 +179,6 @@ type 'a package =
 type compilation_unit = 
   | Program of def procdef
   | Package_Sig  of decl_only package
-
-  (* Definitions and init block. *)
   | Package_Body of def package
   | No_cu (* err: compilation unit was not found *)
 

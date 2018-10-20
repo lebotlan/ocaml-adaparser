@@ -2,14 +2,14 @@ open Loc
 
 type parser_error =
   | Mismatch of string * string
-  | Ignored of string
+  | Ignored of string * int
   | Missing of string
   | Empty of string
   | Not_long_identifier
 
 let err2s = function
   | Mismatch (s1, s2) -> "Expected " ^ s2 ^ " but found " ^ s1
-  | Ignored s -> "Ignored: " ^ s
+  | Ignored (s,i) -> "Ignored: " ^ s ^ " length " ^ string_of_int i
   | Not_long_identifier -> "This expression should be a long identifier."
   | Missing s -> "Missing " ^ s
   | Empty s -> "Empty " ^ s
@@ -39,6 +39,8 @@ let pv ?err x =
     | Some e -> [e]
   in
   { pv = x ; errors }
+
+let punit = pv ()
 
 let map x f = { pv = f x.pv ; errors = x.errors }
 
@@ -71,3 +73,10 @@ let swloc pvl =
 let swopt = function
   | None -> { pv = None ; errors = [] }
   | Some x -> { pv = Some x.pv ; errors = x.errors }
+              
+let swlist l = p_map { pv = l ; errors = [] } (fun x -> x)
+
+let (>>>) x y = x >>= (fun () -> y)
+
+let unitjoin f l = List.fold_left (fun acu x -> acu >>= (fun () -> f x)) punit l
+

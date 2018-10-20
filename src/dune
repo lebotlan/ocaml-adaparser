@@ -1,6 +1,6 @@
 (library
  (name astlib)
- (modules loc idents parse_errors ast astprint)
+ (modules loc idents parse_errors ast astprint astread)
  (libraries shared_vals adavalues))
 
 (ocamllex lexer)

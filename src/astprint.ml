@@ -36,7 +36,7 @@ and expr2s ~margin = function
   | Tuple nels -> "(" ^ Common.sep (nexpr2s ~margin:(margin ^ " ")) ", " nels ^ ")"
 
   (* Infix binary op *)
-  | App (Value av, [ (None, e1) ; (None, e2) ]) ->
+  | App (Value av, [ ([], e1) ; ([], e2) ]) ->
     expr2s ~margin e1 ^ " " ^ Adavalue.tos ~margin av ^ " " ^ expr2s ~margin e2
 
   | App (e, nels) ->
@@ -53,7 +53,10 @@ and expr2s ~margin = function
     margin ^ "else\n" ^
     margin' ^ expr2s ~margin:margin' e3 ^ " ;\n" ^
     margin ^ "end if"
-    
+
+  | Exitwhen e ->
+    "exit when " ^ expr2s ~margin:(margin ^ space 10 "") e
+
   | While (e1, e2) ->
     let margin' = margin ^ indent in
     "\n" ^ margin ^ "while " ^ expr2s ~margin:"" e1 ^ " loop\n" ^
@@ -82,8 +85,8 @@ and expr2s ~margin = function
 
   | Seq l -> Common.sep (expr2s ~margin) (" ;\n" ^ margin) l
 
-  | New (id, None) -> "new " ^ li2s id
-  | New (id, Some e) -> "new " ^ li2s id ^ "'(" ^ expr2s ~margin:"" e ^ ")"
+  | New (id, []) -> "new " ^ li2s id
+  | New (id, l) -> "new " ^ li2s id ^ "'(" ^ Common.sep (expr2s ~margin:"") ", " l ^ ")"
 
   | Is_in (e, range) -> expr2s ~margin e ^ " in " ^ expr2s ~margin:""  range
 
@@ -106,10 +109,12 @@ and when2s ~margin = function
     margin' ^ expr2s ~margin:margin' e
 
 and nexpr2s ~margin (ol, e) = match ol with
-  | None -> expr2s ~margin e
-  | Some l ->
-    let label = l2s l in
-    Printf.sprintf "%s => %s" label (expr2s ~margin:(margin ^ space 4 label) e)
+  | [] -> expr2s ~margin e
+  | l ->
+    let labels = labels2s l in
+    Printf.sprintf "%s => %s" labels (expr2s ~margin:(margin ^ space 4 labels) e)
+
+and labels2s l = Common.sep (expr2s ~margin:"") " | " l
 
 and ltype2s (ol, t) = match ol with
   | None -> li2s t
@@ -129,47 +134,47 @@ and decl2s: 'a . decl_only:bool -> margin:string -> 'a declaration -> string =
 
   | Funrename fr -> Printf.sprintf "%s%s renames %s ;" margin (procdef2s ~decl_only:true ~margin fr.fun_alias) (li2s fr.fun_orig)
                   
-  | Typedef (id, te) ->
+  | Typedef (id, args, te, ocons) ->
     let sid = l2s id in
-    "\n" ^ margin ^ "type " ^ sid ^ " is " ^ type2s ~margin:margin te ^ " ;\n"
+    "\n" ^ margin ^ "type " ^ sid ^ args2s args ^ " is " ^ type2s ~margin:margin te ^ (ocons2s ocons) ^ " ;\n"
                           
   | Subtype (id, lid, ocons) ->
-    margin ^ "subtype " ^ l2s id ^ " is " ^ li2s lid ^
-    (match ocons with
-     | None -> ""
-     | Some subc -> subconstraint2s subc) ^ " ;\n"
+    margin ^ "subtype " ^ l2s id ^ " is " ^ li2s lid ^ (ocons2s ocons) ^ " ;\n"
 
-  | Vardef vdef -> Printf.sprintf "%s%s : %s%s%s%s ;"
-                     margin (l2s vdef.varname)
-                     (if vdef.const then "constant " else "")
-                     (li2s vdef.vartype)
-                     (match vdef.varrange with
-                      | None -> ""
-                      | Some r -> "(" ^ Common.sep (expr2s ~margin:"")  ", " r ^ ")")
-                     (match vdef.vinit with
-                      | None -> ""
-                      | Some e -> " := " ^ expr2s ~margin:" " e)
+  | Vardef vdef -> vardef2s ~margin vdef
 
   | Withclause c -> clause2s c
-                     
+
+and ocons2s = function
+  | None -> ""
+  | Some subc -> subconstraint2s subc
+
+and vardef2s ~margin vdef =
+  Printf.sprintf "%s%s : %s%s%s%s ;"
+    margin (l2s vdef.varname)
+    (if vdef.const then "constant " else "")
+    (type2s ~margin:"" vdef.vartype)
+    (match vdef.constrain with
+     | None -> ""
+     | Some r -> subconstraint2s r)
+    (match vdef.vinit with
+     | None -> ""
+     | Some e -> " := " ^ expr2s ~margin:" " e)
+
 and type2s ~margin = function
+  | Abstract -> ""
+  | Typename ty -> li2s ty
   | Enumerate l -> "(" ^ Common.sep l2s ", " l ^ ")"
   | Delta (d,g) -> Printf.sprintf "delta %s digits %s" (Adavalue.tos d) (Adavalue.tos g)
     
   | Record fields ->
     let margin' = margin ^ indent in
     "record\n" ^
-    Common.sep (fun f -> margin' ^ field2s f ^ "\n") "" fields ^
+    Common.sep (fun f -> margin' ^ vardef2s ~margin:"" f ^ "\n") "" fields ^
     margin ^ "end record"
     
   | Array (rl, ty) ->
     "array (" ^ Common.sep (expr2s ~margin:"")  ", " rl ^ ") of " ^ (li2s ty) 
-
-and field2s fi = Printf.sprintf "%s : %s%s ;"
-    (l2s fi.fname) (li2s fi.ftype)
-    (match fi.fsub with
-     | None -> ""
-     | Some subt -> subconstraint2s subt)
 
 and subconstraint2s = function
   | Index_constraint l -> "(" ^ Common.sep (expr2s ~margin:"")  ", " l ^ ")"

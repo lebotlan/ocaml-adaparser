@@ -197,6 +197,7 @@ let value2s = function
   | ALIASED -> "ALIASED"
   | ACCESS -> "ACCESS"
   | ACCEPT -> "ACCEPT"
+  | ALL -> "ALL"
   | ABSTRACT -> "ABSTRACT"
   | ABS -> "ABS"
   | STRING s -> "\"" ^ s ^ "\""

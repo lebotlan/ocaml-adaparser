@@ -83,7 +83,7 @@ module Make (M: MONAD) =
       (* Some Ada 2005 keywords are considered like standard identifiers. *)
       
       (* add "ABORT" ABORT ; *)   (* add "ABS" ABS ; *)       add "ABSTRACT" ABSTRACT ;   add "ACCEPT" ACCEPT ;
-      add "ACCESS" ACCESS ;       add "ALIASED" ALIASED ;     (* add "ALL" ALL ; *)       add "AND" AND ;
+      add "ACCESS" ACCESS ;       add "ALIASED" ALIASED ;     add "ALL" ALL ;             add "AND" AND ;
       add "ARRAY" ARRAY ;         (* add "AT" AT ; *)         add "BEGIN" BEGIN ;         add "BODY" BODY ;
       add "CASE" CASE ;
       add "CONSTANT" CONSTANT ;   add "DECLARE" DECLARE ;     add "DELAY" DELAY ;         add "DELTA" DELTA ;
@@ -92,7 +92,7 @@ module Make (M: MONAD) =
       add "FOR" FOR ;             add "FUNCTION" FUNCTION ;   add "GENERIC" GENERIC ;     add "GOTO" GOTO ;
       add "IF" IF ;               add "IN" IN ;               add "IS" IS ;               add "LIMITED" LIMITED ;
       add "LOOP" LOOP ;           add "MOD" MOD ;             add "NEW" NEW ;             add "NOT" NOT ;
-      add "NULL" NULL ;           add "OF" OF ;               add "OR" OR ;               add "OTHERS" OTHERS ;
+      (*   add "NULL" NULL ; *)          add "OF" OF ;               add "OR" OR ;           (* add "OTHERS" OTHERS ; *)
       add "OUT" OUT ;             add "PACKAGE" PACKAGE ;     add "PRIVATE" PRIVATE ;
       add "PROCEDURE" PROCEDURE ; add "PROTECTED" PROTECTED ; add "RAISE" RAISE ;         add "RANGE" RANGE ;
       add "RECORD" RECORD ;       add "REM" REM ;             add "RENAMES" RENAMES ;     add "REQUEUE" REQUEUE ;
@@ -151,6 +151,9 @@ let pragma_line     = pragma any*
 (* RANGE *)
 let tick_range      = "'" space* ['R' 'r'] ['A' 'a'] ['N' 'n'] ['G' 'g'] ['E' 'e']
 
+(* GOTO *)
+let goto            = "<<" identifier ">>"
+
 refill {refill_hook}
 
 (* function NEXT_TOKEN *)
@@ -158,6 +161,9 @@ rule next_token state = parse
 
   (* Space and pragma lines are ignored. *)
   | space | pragma_line                          { next_token state lexbuf }
+
+  (* Gotos are ignored too *)
+  | goto                                         { next_token state lexbuf }
 
   (* Identifier and keywords *)
   | identifier as s                              { match find_keyword false s with                   

@@ -48,30 +48,17 @@ let get_num num =
   else 
     begin 
       try Adavalue.mk_int (int_of_string x) 
-      with _ -> assert false 
+      with _ ->
+        if String.contains x '#' then failwith ("Cannot handle non decimal digits: " ^ x)
+        else assert false
     end
-(*
-    let get_int num =
-      match get_num num with
-      | Int x -> x
-      | _ -> syntax_error num.pos Bad_integer
- *)
 
-(* Returns the reversed list of identifiers. *)
-      (*
-let rec check_long_ident' pos = function
-  | Id id -> id.v
-  | Select (e, id) -> id.v :: check_long_ident' pos e
-  | _ -> syntax_error pos Not_long_identifier
-
-(* Returns the list of identifiers *)
-let check_long_ident pos e = { pos ; v = List.rev (check_long_ident' pos e) }
-       *)
-
+    (* let get_int num = Adavalue.get_int (get_num num) *)
+                      
 %}
 
 (* Keywords *)
-%token ABS ABSTRACT ACCEPT
+%token ABS ABSTRACT ACCEPT ALL
 %token ACCESS ALIASED AND 
 %token ARRAY BEGIN BODY 
 %token CASE 
@@ -115,7 +102,9 @@ let check_long_ident pos e = { pos ; v = List.rev (check_long_ident' pos e) }
                                                                                                                       
 %start <Astlib.Ast.ast Astlib.Parse_errors.pv> file
 
+%start <unit> decl_file
 
+       
 (* Precedence *)
 
 %left ACCESS
@@ -127,13 +116,13 @@ let check_long_ident pos e = { pos ; v = List.rev (check_long_ident' pos e) }
 %left OR
 %left AND
 
-%nonassoc IN THEN RANGE
+%nonassoc IN THEN RANGE ELSE
       
 %nonassoc LEQ GEQ LT GT EQUAL NOTEQ
 
 %nonassoc NOT
 
-%left MOD          
+%left MOD REM         
 %left PLUS MINUS    
 %left STAR SLASH STARSTAR
               
@@ -175,8 +164,10 @@ p_list(ELT):
 p_flatlist(ELT): l=p_list(ELT) { l >>= (fun l -> pv (List.flatten l)) }
       
 (* Localized identifier *)
-loc_ident: id=IDENT { mkloc $loc id }
-                
+loc_ident:
+| id=IDENT { mkloc $loc id }
+| ALL      { mkloc $loc all }
+      
 (* Long name with dots only, e.g. Ada.Text_IO ou Package.varname *)
 p_dotted_name: ids = p_separated_nonempty_list(DOT, p_v(IDENT)) { swloc (mkloc $loc ids) }
 
@@ -192,7 +183,7 @@ file:
                         (* Trailing garbage is recorded as an error. *)
                         let err = match g with
                           | None -> None
-                          | Some _ -> Some (mkloc $loc(g) (Ignored "Unexpected text after main program."))
+                          | Some l -> Some (mkloc $loc(g) (Ignored ("Unexpected text after main program.", List.length l)))
                         in
 
                         (* All clauses are flattened. *)
@@ -202,7 +193,7 @@ file:
                       }
 
 (* IDENTs found at the beginning of the file are ignored (and recorded as errors). *)                      
-| _id=IDENT pf=file { pf >>= (fun f -> pv ~err:(mkloc $loc(_id) (Ignored "Ident")) f) }
+| _id=IDENT pf=file { pf >>= (fun f -> pv ~err:(mkloc $loc(_id) (Ignored ("Ident", 1))) f) }
 
 (* 'with' or 'use' clause *)
 (* SPEC: clause is called 'context_item' *)
@@ -213,8 +204,11 @@ clause:
 (* A compilation unit is either a program, a package signature, or a package body. *)
 compilation_unit:
 | p = program                     { p >>= (fun p -> pv (Program p)) }
-| p = package_sig                 { p >>= (fun p -> pv (Package_Sig p)) }
-| p = package_body                { p >>= (fun p -> pv (Package_Body p)) }
+| PRIVATE? p = package_sig        { p >>= (fun p -> pv (Package_Sig p)) }
+
+(* Not sure private can occur here, but it removes yet another shift/reduce conflict. *)
+| PRIVATE? p = package_body       { p >>= (fun p -> pv (Package_Body p)) }
+| generic                         { assert false }
 
 init_block: BEGIN b=block         { b }
                        
@@ -224,7 +218,7 @@ empty: { [] }
 (********************  PACKAGES  *********************)
         
 package_sig: 
-    PACKAGE package_name=dotted_name IS 
+PACKAGE package_name=dotted_name IS 
         pdecl=p_flatlist(declaration(proc_and_fun_decl))
         package_comments=END endname=dotted_name SEMI
                                                                                      
@@ -252,7 +246,6 @@ definitions: d=p_flatlist(declaration(proc_and_fun_def)) { d }
 (* A simple program *)
 program: p=proceduredef(empty) { pv p }
                                   
- (* A function definition *)
 proceduredecl(ARGS):
        PROCEDURE procname=loc_ident args=ARGS
                    { { procname ; args ; declarations=[] ; body=vun ; proccomments=[] ; rettype = None ; sub_errors = pv () } : decl_only procdef }
@@ -303,10 +296,10 @@ functiondef:
            decl=definitions
        BEGIN
          body=exn_block
-       coms=END endname=loc_ident SEMI
+       coms=END endname=loc_ident? SEMI
 						   
-                { expected fdecl.procname endname ;
-
+                { expected ~may_be_empty:true fdecl.procname (Common.option_default endname empty_ident) ; 
+                  
 		  let sub_errors =
 		    body >>= (fun _ -> decl >>= (fun _ -> pv ()))
 		  in
@@ -344,9 +337,43 @@ mode:
 | OUT { Out }
 | IN OUT { InOut }
 
+    
+vardef:
+(* Constant or variable declaration *)
+| names=comalist(loc_ident) COLON ALIASED? cst=CONSTANT?
+   vt=vartype? i=initialize? SEMI
+		   {
+                     let const = cst=Some () in
+                     
+                     match vt with
+                     | None ->
+                        pv (List.map
+                              (fun v -> { varname = v ;
+                                          const ;
+                                          vartype = Typename empty_long_ident ;
+                                          constrain = None ;
+                                          vinit = i })
+                              names)
+                        
+                     | Some (t,c) ->
+                        t >>= (fun t ->
+                         pv (List.map
+			       (fun v -> { varname = v ;
+					   const ;
+					   vartype = t ;
+                                           constrain = c ;
+					   vinit = i })
+			       names)) }
+
+vartype: t=type_expr c=subt_constraint?    { (t, c) }
+                                              
+                                               
 (**************  DECLARATIONS AND DEFINITIONS  ***************)
 declaration(proc_and_fun):
 
+(* Private is ignored *)                                              
+| PRIVATE        { pv [] }
+                                              
 (* Package renaming *)
 | PACKAGE i=loc_ident RENAMES p=dotted_name SEMI  { pv [ Rename { pack_alias = i ;
 								  pack_orig = p }]}
@@ -362,34 +389,36 @@ declaration(proc_and_fun):
                                                                           fun_orig = i }]}
 | c = clause                                          { p_map c (fun x -> pv (Withclause x)) }
                                        
-(* Constant or variable declaration *)
-| names=comalist(loc_ident) COLON cst=CONSTANT?
-   t=typename varrange=parlist(expr,COMMA)? i=initialize? SEMI
-					              { pv (List.map
-                                                              (fun v -> Vardef { varname = v ;
-								                 const = cst=Some () ;
-								                 vartype = t ;
-                                                                                 varrange ;
-								                 vinit = i })
-                                                              names) }
-
 (* Constant or variable, but type is missing *)							    
-| v=loc_ident cst=CONSTANT? i=initialize? SEMI   { pv ~err:(mkloc $loc (Missing "type"))
-						     [ Vardef { varname = v ;
-							        const = cst=Some () ;
-							        vartype = empty_long_ident ;
-                                                                varrange = None ;
-							        vinit = i }]}
+| v=loc_ident i=initialize? SEMI   { pv ~err:(mkloc $loc (Missing "type"))
+				       [ Vardef { varname = v ;
+						  const = false ;
+						  vartype = Typename empty_long_ident ;
+                                                  constrain = None ;
+						  vinit = i }]}
+
+| vdef=vardef { p_map vdef (fun d -> pv (Vardef d)) }
 
 (* Procedure or function declaration or definition *)
-| z=proc_and_fun                                               { z >>= (fun d -> pv [Procdef d]) }
+| z=proc_and_fun                                                { z >>= (fun d -> pv [Procdef d]) }
 
-| TYPE l=loc_ident IS t=type_expr SEMI                         { pv [ Typedef (l, t) ]}
+| TYPE l=loc_ident SEMI                                         { pv [ Typedef (l, [], Abstract, None) ] }
+| TYPE l=loc_ident args=argsdef IS
+         NEW? t=type_expr withprivate? r=subt_constraint? SEMI  { t >>= (fun t -> pv [ Typedef (l, args, t, r) ]) }
+
+| TYPE l=loc_ident args=argsdef IS RANGE e=expr SEMI            { pv [Typedef (l, args, Typename empty_long_ident, Some (Range_constraint e)) ] }
+                                                        
 | SUBTYPE l=loc_ident IS p=dotted_name r=subt_constraint? SEMI  { pv [ Subtype (l, p, r) ]}
+
+| generic { assert false }
+
+(* Ignored *)
+withprivate: WITH PRIVATE { }
 
 typename:
 | t=dotted_name                    { t }
-| ACCESS t=typename                { { pos = t.pos ; v = access :: t.v } }
+(*| ALIASED t=dotted_name                    { t } *)
+| ACCESS ALL? t=typename           { { pos = t.pos ; v = access :: t.v } }
 | t=typename TICK i=loc_ident      { mkloc $loc (t.v @ [i.v]) }
 | EXCEPTION                        { mkloc $loc [i_exception] }
                       
@@ -403,7 +432,7 @@ ltype:
 subt_constraint:
 | l=parlist(expr, COMMA)                                 { Index_constraint l }
 | RANGE r=expr                                           { Range_constraint r }
-
+            
 initialize: ASSIGN e=expr { e }
 
 (* Procedure or function definition or declaration *)
@@ -418,18 +447,15 @@ proc_and_fun_def:
 proc_and_fun_decl:
 | p=proceduredecl(argsdef) SEMI                                { pv p }
 | f=functiondecl SEMI                                          { pv f }
-
-
+      
 (************************  TYPEDEFS  *************************)
 type_expr:
-| l=parlist(loc_ident, COMMA)                          { Enumerate l }
-| RECORD a=attribute* END RECORD                       { Record (List.flatten a) }
-| ARRAY ranges=parlist(expr,COMMA) OF t=typename { Array (ranges, t) }
-| DELTA x=pnum DIGITS y=pnum                           { Delta (get_num x, get_num y) }
-
-(* Attribute (field) in a record definition *)
-attribute: fnames=comalist(loc_ident) COLON ftype=typename fsub=subt_constraint? SEMI
-            { List.map (fun fname -> { fname ; ftype ; fsub } ) fnames }
+| TAGGED? LIMITED? PRIVATE                             { pv (Abstract) }
+| t=typename                                           { pv (Typename t) }
+| l=parlist(loc_ident, COMMA)                          { pv (Enumerate l) }
+| RECORD a=vardef* END RECORD                          { swlist a >>= (fun l -> pv (Record (List.flatten l))) }
+| ARRAY ranges=parlist(expr,COMMA) OF t=typename       { pv (Array (ranges, t)) }
+| DELTA x=pnum DIGITS y=pnum                           { pv (Delta (get_num x, get_num y)) }
 
 (***********************  STATEMENTS  ************************)
 
@@ -444,20 +470,26 @@ exn_handler:
                        
 statement: 
 | NULL SEMI                                                        { pv vun }
-| DELAY e=expr SEMI                                                { pv (App (Value Builtins.delay, [(None, e)])) }
-| RAISE e=expr SEMI                                                { pv (App (Value Builtins.araise, [(None, e)])) }
-
+| DELAY e=expr SEMI                                                { pv (App (Value Builtins.delay, [([], e)])) }
+| RAISE e=expr SEMI                                                { pv (App (Value Builtins.araise, [([], e)])) }
+| GOTO e=expr SEMI                                                 { pv (App (Value Builtins.goto, [([], e)])) }
+| EXIT SEMI                                                        { pv (Id (mkloc $loc [i_exit])) }
+              
 | e=expr SEMI                                                      { pv e }                 
 
 | e1=expr ASSIGN e2=expr SEMI                                      { pv (Assign (e1, e2)) }
 
 | IF e1=expr THEN s1=block s2=elsif END IF SEMI                    { s1 >>= (fun s1 -> s2 >>= (fun s2 -> pv (If (e1, s1, s2)))) }
 
-| FOR l=loc_ident IN r=expr LOOP s=block END LOOP SEMI       { s >>= (fun s -> pv (For (l, r, s))) }
+| FOR l=loc_ident IN r=expr LOOP s=block END LOOP SEMI             { s >>= (fun s -> pv (For (l, r, s))) }
 | WHILE e=expr LOOP s=block END LOOP SEMI                          { s >>= (fun s -> pv (While (e, s))) }
 
+| LOOP s=block END LOOP SEMI                                       { s >>= (fun s -> pv (While (Id (mkloc $loc [i_exit]), s))) }
+
 | DECLARE d=definitions BEGIN s=exn_block END SEMI
-  	            { d >>= (fun d -> s >>= (fun s -> pv (Declare (d, s)))) }
+  	                          { d >>= (fun d -> s >>= (fun s -> pv (Declare (d, s)))) }
+
+| EXIT WHEN e=expr SEMI                                            { pv (Exitwhen e) }
 
 | CASE e=expr IS l=p_nonempty_list(when_clause) END CASE SEMI      { l >>= (fun l -> pv (Case (e, l))) }
 
@@ -470,7 +502,9 @@ elsif:
 
 when_clause: 
 | WHEN l=separated_nonempty_list(BAR, expr) IMPLY s=block      { s >>= (fun s -> pv (Match (l, s))) }
-| WHEN OTHERS IMPLY s=block                                    { s >>= (fun s -> pv (Others s)) }
+                                                        
+(* Others is an identifier *)                                                        
+(* | WHEN OTHERS IMPLY s=block                                    { s >>= (fun s -> pv (Others s)) } *)
 
 (***********************  EXPRESSIONS  ************************)
 
@@ -483,15 +517,16 @@ dot_expr:
 | e=dot_expr TICK i=loc_ident               { Tick (e,i) }
 | e=dot_expr TICK _a=ACCESS                 { Tick (e,mkloc $loc(_a) access) }
 | l=pars(comalist(nexpr))                   { Tuple l }
-| NEW l=dotted_name e=tickinit              { New (l, Some e) }
+| NEW n=dotted_name l=tickinit              { New (n, l) }
+| NEW n=dotted_name a=parlist(expr, COMMA)  { New (n, a) }
                         
 expr:
 | e=dot_expr                                { e }
-| NEW l=dotted_name                         { New (l, None) }
-| e1=expr op=INFIX_OP e2=expr               { App (Value op, [ (None, e1) ; (None, e2) ]) }
-| op=PREFIX_OP e=expr                       { App (Value op, [ (None, e) ]) }
+| NEW l=dotted_name                         { New (l, []) }
+| e1=expr op=INFIX_OP e2=expr               { App (Value op, [ ([], e1) ; ([], e2) ]) }
+| op=PREFIX_OP e=expr                       { App (Value op, [ ([], e) ]) }
 | e=expr IN r=expr                          { Is_in (e, r) }
-| e=expr NOT IN r=expr                      { App (Value bnot, [ (None, Is_in (e, r)) ]) }
+| e=expr NOT IN r=expr                      { App (Value bnot, [ ([], Is_in (e, r)) ]) }
 
 (* Range expressions *)                                     
 | BRAKET                                    { Unconstrained }
@@ -499,14 +534,15 @@ expr:
 | e1=dot_expr RANGE e2=expr                 { Range(e1, e2) }
 | e=dot_expr TICKRANGE i=pars(pnum)?        { TickRange(e, Common.option_map i get_num) }
                     
-tickinit: TICK e=pars(expr)                 { e }
+tickinit: TICK l=parlist(expr,COMMA)        { l }
 		   
 nexpr:
-| e=expr                                    { (None, e) }
-| l=loc_ident IMPLY e=expr                  { (Some l, e) }
-| n=nnum IMPLY e=expr                        { let (s, _) = n.v in (Some (mkloc $loc(n) (norm s)), e) }
-| OTHERS IMPLY e=expr                       { (Some (mkloc $loc others), e) }
+| e=expr                                    { ([], e) }
+| l=label IMPLY e=expr                      { (l, e) }
 
+label:
+| e=expr                                    { [e] }
+| e1=expr BAR l=label                       { e1 :: l }
 
 adavalue:
 | n=pnum                               { get_num n }
@@ -514,9 +550,6 @@ adavalue:
 | s=STRING                             { Adavalue.mk_string s }
 
 pnum: n=NUM                            { mkloc $loc n }
-      
-nnum: p=pnum                           { p }
-| MINUS n=NUM                          { let (s,f) = n in mkloc $loc ("-" ^ s, f) }
                                        
 %inline INFIX_OP:
 | STAR    { times }
@@ -525,6 +558,7 @@ nnum: p=pnum                           { p }
 | PLUS    { plus }
 | MINUS   { minus }
 | MOD     { modu }
+| REM     { rem }
           
 | AMPAND  { sconcat }
 | LEQ     { leq }
@@ -537,11 +571,13 @@ nnum: p=pnum                           { p }
 | AND THEN { band }
 | AND     { band }
 | OR      { bor }
+| OR ELSE { bor }
 
 %inline PREFIX_OP:
 | NOT     { bnot }
 | MINUS   { neg }       
-      
+
+generic: GENERIC { failwith "Cannot handle generic" }
     
 garbage: l=garbage_token+ { l }
         

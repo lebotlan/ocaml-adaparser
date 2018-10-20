@@ -30,4 +30,6 @@ let access = norm "access"
 let all = norm "all"
 let others = norm "others"   
 let i_exception = norm "exception"
-
+let i_exit = norm "exit"
+let i_true = norm "true"
+    

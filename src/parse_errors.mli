@@ -3,8 +3,9 @@ type parser_error =
   (* Received string does not match expected string (e.g. end Foo instead of end Bar). *)
   | Mismatch of string * string
 
-  (* Ignored stuff (e.g. 'y' somewhere in the file). *)
-  | Ignored of string
+  (* Ignored stuff (e.g. 'y' somewhere in the file). 
+   * Error message. N is the number of ignored TOKENS. *)
+  | Ignored of string * int
 
   (* Missing stuff (e.g. missing body *)
   | Missing of string
@@ -40,10 +41,16 @@ val map: 'a pv -> ('a -> 'b) -> 'b pv
 val bind: 'a pv -> ('a -> 'b pv) -> 'b pv
 val (>>=): 'a pv -> ('a -> 'b pv) -> 'b pv
 
+(* Lists *)
 val (>>::): 'a pv -> 'a list pv -> 'a list pv
 val pnil: 'a list pv
 
 val p_map: 'a list pv -> ('a -> 'b pv) -> 'b list pv
+
+(* Unit *)
+val punit: unit pv
+val (>>>): unit pv -> unit pv -> unit pv
+val unitjoin: ('a -> unit pv) -> 'a list -> unit pv
 
 (* val (>>+) agglomerates *)
 open Loc
@@ -51,4 +58,6 @@ open Loc
 val swloc: 'a pv loc -> 'a loc pv
 
 val swopt: 'a pv option -> 'a option pv
+    
+val swlist: 'a pv list -> 'a list pv
     

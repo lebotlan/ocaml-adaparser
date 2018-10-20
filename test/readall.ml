@@ -1,8 +1,22 @@
 open Term2
 open Unix
+open Astlib
+open Adaparser
     
 (* Set of files already seen. *)
 let seen = Hashtbl.create 2000
+
+let get_result astf =
+  try%lwt
+    let%lwt astf = astf in
+    let result =
+      match (Astread.all_errors astf).errors with
+      | [] -> "0"
+      | _ -> "X"
+    in
+    Lwt.return result
+      
+  with _ -> Lwt.return "E"
 
 (* Process one existing, unseen, file *)
 let process outch path name =
@@ -11,14 +25,18 @@ let process outch path name =
   let command = Printf.sprintf "gnatgcc -c -gnats \"%s\"" path in
   let gcc_result = Lwt_unix.system command in
 
+  let astfile = Readfile.lwt_parse_file path in
+   
   let%lwt gcc = match%lwt gcc_result with
     | WEXITED 0 -> Lwt.return "0"
-    | WEXITED _ -> Lwt.return "1"
+    | WEXITED _ -> Lwt.return "E"
     | WSIGNALED i -> Lwt.return ("SIGNALED " ^ string_of_int i)
     | WSTOPPED i -> Lwt.return ("STOPPED " ^ string_of_int i)
   in
 
-  Lwt_io.fprintf outch "%s;-;-;%s;;;%s;\n" name gcc path
+  let%lwt ast_result = get_result astfile in
+
+  Lwt_io.fprintf outch "%s,%s,%s,,,%s,\n" name ast_result gcc path
 
 (* Analyses a file whose path is given in a line of the file list. *)
 let do_line outch _linenb path =
