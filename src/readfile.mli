@@ -1,8 +1,9 @@
 open Astlib
+open Parse_errors
 
-val parse_file: string -> Ast.file
+type path = string
   
-val lwt_parse_file: string -> Ast.file Lwt.t
-
-
+val parse_file: path -> Ast.file pv
+  
+val lwt_parse_file: path -> Ast.file pv Lwt.t
 

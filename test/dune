@@ -1,7 +1,7 @@
 (executables
- (names testada readall)
- (modules testada readall)
- (libraries adaparser lwtutils term2)
+ (names testada readall testads)
+ (modules testada readall testads)
+ (libraries adaparser adanorm lwtutils term2)
 
  (preprocess (pps lwt_ppx)))
 

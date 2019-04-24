@@ -3,7 +3,7 @@
 all:	test 
 
 test:
-	dune build test/testada.exe test/readall.exe
+	dune build test/testada.exe test/readall.exe test/testads.exe
 	cp _build/default/test/*.exe .
 
 clean:

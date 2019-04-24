@@ -67,10 +67,17 @@ let lt    = overload [ cop "<" (<) ; fcop "<" (<) ]
 
 let bor   = bop "or" (||)
 let band  = bop "and" (&&)
+let bxor  = bop "xor" (fun a b -> a <> b)
 let bnot  = makeun get_bool mk_bool "not" (not)
 
 let neg = overload [ makeun get_int mk_int "-" (fun i -> -i) ;
                      makeun get_float mk_float "-" (fun i -> -.i) ]
+
+let abs = overload [ makeun get_int mk_int "abs" abs ;
+                     makeun get_float mk_float "abs" abs_float ]
+
+let idplus  = overload [ makeun get_int mk_int "+" (fun i -> i) ;
+                         makeun get_float mk_float "+" (fun i -> i) ]
 
 let sconcat = makeop get_string mk_string "&" (^)
 

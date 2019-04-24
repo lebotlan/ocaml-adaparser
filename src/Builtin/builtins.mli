@@ -16,8 +16,10 @@ val div: v
 val plus: v
 val minus: v
 val neg: v
+val idplus: v
 val power: v
 val modu: v
+val abs: v
   
 val geq: v
 val leq: v
@@ -29,5 +31,6 @@ val notequal: v
 val band: v
 val bor: v
 val bnot: v
+val bxor: v
 
 val sconcat: v

@@ -72,6 +72,6 @@ let run () =
     in
     Lwt.return_unit
 
-open Lwtplus.Setkeys
+open Lwtlaunch.Setkeys
 
-let () = noconfig ===> Lwtplus.launch ~appname:"Readall" ~run ()
+let () = noconfig ===> Lwtlaunch.launch ~appname:"Readall" ~run ()

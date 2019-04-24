@@ -10,10 +10,18 @@ type parser_error =
   (* Missing stuff (e.g. missing body *)
   | Missing of string
 
+  | Misplaced of string
+
+  (* Bad symbol (e.g. , instead of ;) *)
+  | Bad_symbol of string
+
   (* Something is unexpectedly empty. e.g. "empty procedure" *)
   | Empty of string
       
   | Not_long_identifier
+
+  (* A .ads file cannot be found *)
+  | Cannot_find of Idents.long_ident
 
 val err2s: parser_error -> string
 
@@ -29,7 +37,7 @@ type 'a pv =
   { pv: 'a ;
     errors: lp_error list }
 
-val lperr2s: margin:string -> lp_error list -> string
+val lp2s: lp_error -> string
 
 (*** Parse-error monad ***)
 
@@ -49,7 +57,7 @@ val p_map: 'a list pv -> ('a -> 'b pv) -> 'b list pv
 
 (* Unit *)
 val punit: unit pv
-val (>>>): unit pv -> unit pv -> unit pv
+val (>>>): unit pv -> 'a pv -> 'a pv
 val unitjoin: ('a -> unit pv) -> 'a list -> unit pv
 
 (* val (>>+) agglomerates *)

@@ -1,0 +1,13 @@
+(library
+ (name adanorm)
+ (public_name adanorm)
+ 
+ (libraries astlib adaparser lwtutils)
+
+ (preprocess (pps lwt_ppx)))
+ 
+ 
+
+
+
+

@@ -1,5 +1,7 @@
 (library
  (name adabuiltins)
+ (public_name adabuiltins)
+ 
  (modules builtins)
  (libraries adavalues astlib))
 

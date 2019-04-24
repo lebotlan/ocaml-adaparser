@@ -11,34 +11,29 @@ type pack_rename =
   { pack_alias: loc_ident ;
     pack_orig: long_ident }
 
-(* Phantom type used to distinguish procedure declarations from procedure definitions. *)
-type def
-type decl_only
+type withclause =
+  | With of long_ident
+  | Use of long_ident
+  | Usetype of long_ident
 
-type withclause = With of long_ident | Use of long_ident
-
-(* Procedure or function definition 
- * 'a is def or decl_only. *)
-type 'a procdef =
+type procdecl =
   { procname: loc_ident ; 
     args: arg list ;
-
+    
     (* Return type (for a function). *)
-    rettype: long_ident option ;
+    rettype: long_ident option }
+  
+(* Procedure or function definition *)
+and procdef =
+  { decl: procdecl ;
 
-    (* Local declarations (before the procedure or function BEGIN).
-     * EMPTY if this is a 'decl_only' *)
-    declarations: (def declaration) list ;
+    (* Local declarations (before the procedure or function BEGIN). *)
+    declarations: pv_declaration list ;
 
-    (* Body. = unit if 'decl_only'. *)
     body: expr ;
 
     (* Comments found in body. *)
-    proccomments: string list ;
-
-    (* Errors found in this procedure/function. *)
-    sub_errors: unit pv ;
-  }
+    proc_comments: string list }
 
 and arg =
   { argname: loc_ident ;
@@ -47,32 +42,47 @@ and arg =
     argdefault: expr option }
 
 and fun_rename =
-  { fun_alias: decl_only procdef ;
+  { fun_alias: procdecl ;
     fun_orig: long_ident }
 
+(* Possibly labeled type *)
 and ltype = loc_ident option * long_ident
 
-and 'a declaration =
-  (* Definition of a function or procedure. *)
-  | Procdef of 'a procdef
+and package_content =
+  { package_name: long_ident ;
+    package_sig: bool ;
+    package_declarations: pv_declaration list ;
+    package_comments: string list ;
+    package_init: expr option }
 
+and declaration =
+  | Withclause of withclause
+  
   (* Package renames *)
-  | Rename  of pack_rename
+  | Rename of pack_rename
 
   (* Package instance (package is new) *)
   | Packnew of loc_ident * long_ident * (ltype list)
 
-  (* Function renames *)
-  | Funrename of fun_rename
+  | Package of package_content
 
   (* Type definition *)
   | Typedef of loc_ident * arg list * type_expr * (subt_constraint option)
   | Subtype of loc_ident * long_ident * (subt_constraint option)
+  
+  (* Definition of a function or procedure. *)
+  | Procdef of procdef
+
+  (* Only declaration *)
+  | Procdecl of procdecl
+
+  (* Function renames *)
+  | Funrename of fun_rename
 
   (* Variable definition *)
   | Vardef of vardef
 
-  | Withclause of withclause
+and pv_declaration = declaration list pv
 
 (* Variable definition *)
 and vardef =
@@ -109,7 +119,7 @@ and subt_constraint =
   | Index_constraint of expr list (* e.g. T_Mat(1..12, 10..20) *)
   | Range_constraint of expr (* e.g. Integer range 0..50 *)
 
-(*** EXPRESSIONS ***)
+(*** EXPRESSIONS (including ranges) ***)
 
 (* Expression *)
 and expr =
@@ -117,7 +127,7 @@ and expr =
   | Value of expr adavalue
 
   (* Variable name *)
-  | Id of long_ident
+  | Id of loc_ident
 
   (* Record or array *)
   | Tuple of nexpr list
@@ -134,14 +144,17 @@ and expr =
   (* e.name *)
   | Select of expr * loc_ident
 
-  (* e'name *)
-  | Tick of expr * loc_ident
+  (* e1'e2 *)
+  | Tick of expr * expr
 
   | If of expr * expr * expr
   | While of expr * expr
   | Exitwhen of expr
-  | For of loc_ident * expr * expr
-  | Declare of (def declaration) list * expr
+
+  (* For reverse? X of/in e1 loop e2 *)
+  | For     of [`OF | `IN] * bool * loc_ident * expr * expr
+               
+  | Declare of declaration list * expr
   | Case    of expr * (when_clause list)
   | Return  of expr
   | Seq     of expr list
@@ -155,14 +168,17 @@ and expr =
   | Unconstrained (* <> *)
   | Interval of expr * expr (* 0..50 *)
   | TickRange of expr * (expr adavalue option) (* e.g. Bla'Range(2) *)
-  | Range of expr * expr (* Integer range interval *)
+  | Range of expr * expr (* Integer range e *) 
 
 and when_clause = 
-  | Others of expr
-  | Match  of expr list * expr
+  (* Match label: idents => block *)
+  | Match  of loc_ident option * expr list * expr
+  (* Others is just an identifier
+   * Can match identifiers, ranges.
+   * For exceptions, when x : exception  defines x. 
+  *)
 
 (* Note : Delay is a function application (builtin) *)
-
 
 (* Named expression: label => expr *)
 and nexpr = label * expr
@@ -170,27 +186,11 @@ and nexpr = label * expr
 (* List: (range1 | range2 => expr *)
 and label = expr list
 
-type 'a package =
-  { package_name: long_ident ;
-    package_declarations: ('a declaration) list ;
-    package_comments: string list ;
-    package_init: expr option }
-
-type compilation_unit = 
-  | Program of def procdef
-  | Package_Sig  of decl_only package
-  | Package_Body of def package
-  | No_cu (* err: compilation unit was not found *)
-
-type ast =
-  { (* Clauses *)
-    clauses: withclause list ;
-    c_unit: compilation_unit }
-
-type path = string
-
 type file =
-  { file: path ;
-    ast: ast pv }
+  { path: string ;
+    content: pv_declaration list ;
+    file_comments: string list ;
 
-  
+    (* Position of the whole file. *)
+    fpos: Loc.pos }
+ 

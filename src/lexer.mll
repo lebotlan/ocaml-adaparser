@@ -82,7 +82,7 @@ module Make (M: MONAD) =
 
       (* Some Ada 2005 keywords are considered like standard identifiers. *)
       
-      (* add "ABORT" ABORT ; *)   (* add "ABS" ABS ; *)       add "ABSTRACT" ABSTRACT ;   add "ACCEPT" ACCEPT ;
+      (* add "ABORT" ABORT ; *)   add "ABS" ABS ;             add "ABSTRACT" ABSTRACT ;   add "ACCEPT" ACCEPT ;
       add "ACCESS" ACCESS ;       add "ALIASED" ALIASED ;     add "ALL" ALL ;             add "AND" AND ;
       add "ARRAY" ARRAY ;         (* add "AT" AT ; *)         add "BEGIN" BEGIN ;         add "BODY" BODY ;
       add "CASE" CASE ;
@@ -151,6 +151,9 @@ let pragma_line     = pragma any*
 (* RANGE *)
 let tick_range      = "'" space* ['R' 'r'] ['A' 'a'] ['N' 'n'] ['G' 'g'] ['E' 'e']
 
+(* IS NEW *)
+let is_new          = ['I' 'i'] ['S' 's'] space+ ['N' 'n'] ['E' 'e'] ['W' 'w']
+
 (* GOTO *)
 let goto            = "<<" identifier ">>"
 
@@ -171,7 +174,9 @@ rule next_token state = parse
                                                    | x     -> M.return (x, state) }
 
   (* 'RANGE is simpler to handle in the lexer than in the parser. *)
-  | tick_range as s                              { M.return (find_keyword true s, state) }
+  | tick_range                                   { M.return (TICKRANGE, state) }
+
+  | is_new                                       { M.return (ISNEW, state) }
 
   (* Delimiters *)
   | ("." | "<" | "(" | "+" |

@@ -4,8 +4,11 @@ type parser_error =
   | Mismatch of string * string
   | Ignored of string * int
   | Missing of string
+  | Misplaced of string
+  | Bad_symbol of string
   | Empty of string
   | Not_long_identifier
+  | Cannot_find of Idents.long_ident
 
 let err2s = function
   | Mismatch (s1, s2) -> "Expected " ^ s2 ^ " but found " ^ s1
@@ -13,6 +16,9 @@ let err2s = function
   | Not_long_identifier -> "This expression should be a long identifier."
   | Missing s -> "Missing " ^ s
   | Empty s -> "Empty " ^ s
+  | Misplaced s -> "Misplaced " ^ s
+  | Bad_symbol s -> "Bad symbol " ^ s
+  | Cannot_find li -> "Cannot find package " ^ (Idents.li2s li)
                            
 exception Syntax_error of parser_error loc
 
@@ -30,8 +36,6 @@ type 'a pv =
     errors: lp_error list }
 
 let lp2s lpe = Printf.sprintf "%s: %s" (Loc.loc2s lpe) (err2s lpe.v)
-
-let lperr2s ~margin l = Common.sep (fun e -> margin ^ lp2s e) "\n" l
 
 let pv ?err x =
   let errors = match err with

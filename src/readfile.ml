@@ -1,16 +1,20 @@
 open Lexhelp
-open Astlib.Ast
+open Astlib
+open Ast
+open Parse_errors
 
+type path = string
+  
 (* Non-lwt version *)
-let parse_file file =
+let parse_file path =
 
-  let chin = open_in file in
-  let (lexbuf, feeder) = new_lexer file chin in
+  let chin = open_in path in
+  let (lexbuf, feeder) = new_lexer path chin in
  
   try
-    let ast = Parser.file feeder lexbuf in
+    let past = Parser.file feeder lexbuf in
     close_in chin ;
-    { file ; ast }
+    past >>= (fun ast -> pv { ast with path })
     
   with e ->
     close_in chin ;
@@ -25,11 +29,11 @@ let parse_file file =
 module I = Parser.MenhirInterpreter
 
 (* Lwt-version *)
-let lwt_parse_file file =
+let lwt_parse_file path =
 
-  Lwt_io.(with_file ~mode:input file)
+  Lwt_io.(with_file ~mode:input path)
     begin fun chin ->
-      let%lwt (lexbuf, feeder) = lwt_new_lexer file chin in
+      let%lwt (lexbuf, feeder) = lwt_new_lexer path chin in
 
       let get_token () =
         let%lwt token = feeder lexbuf in
@@ -52,9 +56,9 @@ let lwt_parse_file file =
           | I.Rejected -> Lwt.fail_with "Rejected."
         in
 
-        let%lwt ast = loop init init in          
-        Lwt.return { file ; ast }
-
+        let%lwt past = loop init init in          
+        Lwt.return (past >>= (fun ast -> (pv { ast with path })))
+                   
       with e ->
         Lwt_io.printf "Error : %s\n" (Printexc.to_string e) ;%lwt
         Lwt_io.printf "\nLexer state :\n   " ;%lwt

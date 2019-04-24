@@ -1,11 +1,7 @@
 
 (*
- * This is a parser for something that looks like a subset of Ada 2005.
+ * This is a parser for a language that roughly looks like a subset of Ada.
  * This file must be compiled with menhir (a high-level parser generator for ocaml). 
- *
- * Note : 
- *   - for the application I had in mind, this parser (and lexer) read only valid Ada files,
- *     hence we take some liberty with respect to the Ada spec.
  *)
 
 %{
@@ -18,23 +14,17 @@ open Parse_errors
 open Idents
 open Builtins
 
-
 let vun = Value Adavalue.unit
 
-(* long: long, qualified identifier *)
-let longtos l = Common.sep i2s "." l
-
 let expected ?(may_be_empty=false) expected_string read_ident =
-  if may_be_empty && is_empty read_ident then ()
+  if may_be_empty && is_empty read_ident then punit
   else
-    if Idents.equal expected_string read_ident then ()
-    else syntax_error read_ident.pos (Mismatch (i2s expected_string.v, Idents.i2s read_ident.v))
+    if Idents.equal expected_string read_ident then punit
+    else pv ~err:{ pos = read_ident.pos ; v = Mismatch (i2s expected_string.v, Idents.i2s read_ident.v) } ()
                         
 let expected_long exp_longname read_longname =
-  if Idents.long_equal exp_longname read_longname then ()
-  else syntax_error read_longname.pos (Mismatch (longtos exp_longname.v, longtos read_longname.v))
-
-(* let integer = Idents.norm "integer" *)
+  if Idents.long_equal exp_longname read_longname then punit
+  else pv ~err:{ pos = get_li_pos read_longname ; v = Mismatch (li2s exp_longname, li2s read_longname) } ()
 
 let get_num num =
   let (x, real) = num.v in
@@ -49,8 +39,12 @@ let get_num num =
     begin 
       try Adavalue.mk_int (int_of_string x) 
       with _ ->
-        if String.contains x '#' then failwith ("Cannot handle non decimal digits: " ^ x)
-        else assert false
+        if String.contains x '#' then failwith ("Cannot handle non decimal digits yet: " ^ x)
+        else
+          begin
+            if String.contains x 'E' then Adavalue.mk_int (int_of_float (float_of_string x))
+            else assert false (* Unknown number *)
+            end
     end
 
     (* let get_int num = Adavalue.get_int (get_num num) *)
@@ -66,10 +60,10 @@ let get_num num =
 %token DO ELSE ELSIF 
 %token ENTRY EXCEPTION EXIT 
 %token FOR FUNCTION GENERIC GOTO 
-%token IF IN IS LIMITED 
+%token IF IN IS LIMITED  ISNEW
 %token LOOP MOD NEW NOT 
-%token NULL OF OR OTHERS 
-%token OUT PACKAGE PRAGMA PRIVATE 
+%token NULL OF OR 
+%token OUT PACKAGE PRIVATE 
 %token PROCEDURE PROTECTED RAISE RANGE 
 %token RECORD REM RENAMES REQUEUE 
 %token RETURN REVERSE SELECT SEPARATE 
@@ -100,30 +94,28 @@ let get_num num =
 %token <char>   CHAR
 %token <string> STRING
                                                                                                                       
-%start <Astlib.Ast.ast Astlib.Parse_errors.pv> file
+%start <Astlib.Ast.file Astlib.Parse_errors.pv> file
 
-%start <unit> decl_file
-
-       
-(* Precedence *)
+                                                 
+(*** Precedence ***)
 
 %left ACCESS
 %left TICK
-      
-                                                 
+%left DOT
+
 %left AMPAND
 
-%left OR
+%left OR XOR
 %left AND
-
-%nonassoc IN THEN RANGE ELSE
+      
+%nonassoc LPAREN IN THEN RANGE ELSE DOTDOT
       
 %nonassoc LEQ GEQ LT GT EQUAL NOTEQ
 
 %nonassoc NOT
 
 %left MOD REM         
-%left PLUS MINUS    
+%left PLUS MINUS ABS
 %left STAR SLASH STARSTAR
               
 %%
@@ -142,8 +134,12 @@ p_v(X): x=X { pv x }
 %inline pars(X): LPAREN x=X RPAREN { x }
             
 (* Parenthesized list *)
-parlist(ELT, SEP): args = pars(separated_nonempty_list(SEP, ELT)) { args }
-                            
+%inline parlist(ELT, SEP): args = pars(separated_nonempty_list(SEP, ELT)) { args }
+
+alt(X,Y): 
+| x=X { x }
+| y=Y { y }
+                                    
 (* Comma-list *)
 comalist(ELT): elts = separated_nonempty_list(COMMA, ELT) { elts }
 
@@ -157,6 +153,8 @@ p_nonempty_list(ELT):
 | e=ELT { e >>:: pnil }
 | e=ELT l=p_nonempty_list(ELT) { e >>:: l }
 
+empty: { }
+            
 p_list(ELT):
 | empty { pv [] }
 | l=p_nonempty_list(ELT) { l }
@@ -164,162 +162,142 @@ p_list(ELT):
 p_flatlist(ELT): l=p_list(ELT) { l >>= (fun l -> pv (List.flatten l)) }
       
 (* Localized identifier *)
-loc_ident:
+%inline loc_ident:
 | id=IDENT { mkloc $loc id }
 | ALL      { mkloc $loc all }
-      
-(* Long name with dots only, e.g. Ada.Text_IO ou Package.varname *)
-p_dotted_name: ids = p_separated_nonempty_list(DOT, p_v(IDENT)) { swloc (mkloc $loc ids) }
+| ACCESS   { mkloc $loc access }
 
-dotted_name: ids = separated_nonempty_list(DOT, IDENT) { mkloc $loc ids } 
+%inline simple_loc_ident:
+| id=IDENT { mkloc $loc id }
+     
+(* Long name with dots only, e.g. Ada.Text_IO ou Package.varname *)
+p_dotted_name: ids = p_separated_nonempty_list(DOT, p_v(simple_loc_ident)) { ids }
+
+dotted_name: ids = separated_nonempty_list(DOT, simple_loc_ident) { ids }
 
 
 (****************  FILES, COMPILATION UNITS  *****************)
 
-file: 
-(* A file must contain only one compilation unit, preceded by a list of clauses ('with' and 'use') *)
-| cl=p_flatlist(clause) cu=compilation_unit g=garbage? EOF
-                      {
-                        (* Trailing garbage is recorded as an error. *)
-                        let err = match g with
-                          | None -> None
-                          | Some l -> Some (mkloc $loc(g) (Ignored ("Unexpected text after main program.", List.length l)))
-                        in
-
-                        (* All clauses are flattened. *)
-                        cl >>= (fun clauses -> cu >>=
-                                                 (fun c_unit -> pv ?err { clauses ;
-                                                                          c_unit } ))
-                      }
+file: decls=declaration* file_comments=EOF { pv { path = "" ;
+                                                  (* Declarations are flattened *)
+                                                  content = decls ;
+                                                  file_comments ;
+						  fpos = mkpos $loc } }
 
 (* IDENTs found at the beginning of the file are ignored (and recorded as errors). *)                      
 | _id=IDENT pf=file { pf >>= (fun f -> pv ~err:(mkloc $loc(_id) (Ignored ("Ident", 1))) f) }
 
+(* Get rid of unused tokens warning. *)                    
+| GTGT GTGT GTGT garbage_token EOF { assert false }
+                 
+(**************  DECLARATIONS AND DEFINITIONS  ***************)
+declaration:
+
+(* Private is ignored *)                                              
+| PRIVATE            { pv [] }
+
+(* Not implemented yet. *)
+| GENERIC            { failwith "Cannot handle generic" }
+| PROCEDURE loc_ident argsdef ISNEW { failwith "Procedure is new : not implemented" }
+                                 
+| c = withclause     { p_map c (fun x -> pv (Withclause x)) }
+
+(* Package renames *)
+| PACKAGE i=loc_ident RENAMES p=dotted_name SEMI  { pv [ Rename { pack_alias = i ;
+								  pack_orig = p }]}
+                                            
+(*  Package instance (is new) *)                                           
+| PACKAGE i=loc_ident ISNEW o=dotted_name l=parlist(ltype, COMMA) SEMI
+                                                  { pv [ Packnew (i, o, l) ] }
+| pc=package_sig        { map pc (fun pc -> [ Package pc ]) }
+| pc=package_body       { map pc (fun pc -> [ Package pc ]) }
+
+(* Type defs *)                        
+| TYPE l=loc_ident SEMI                                         { pv [ Typedef (l, [], Abstract, None) ] }
+| TYPE l=loc_ident args=argsdef alt(IS,ISNEW)
+              t=type_expr withprivate? r=subt_constraint? SEMI  { t >>= (fun t -> pv [ Typedef (l, args, t, r) ]) }
+                                                        
+| TYPE l=loc_ident args=argsdef IS RANGE e=expr SEMI            { pv [Typedef (l, args, Typename empty_long_ident, Some (Range_constraint e)) ] }
+                                                        
+| SUBTYPE l=loc_ident IS p=dotted_name r=subt_constraint? SEMI  { pv [ Subtype (l, p, r) ]}
+				                                                
+(* Function renaming *)
+| p=procdecl RENAMES i=dotted_name SEMI { p >>= (fun decl -> pv [ Funrename { fun_alias = decl ;
+                                                                              fun_orig = i }]) }
+                                       
+(* Constant or variable, but type is missing *)
+| v=loc_ident i=initialize? SEMI   { pv ~err:(mkloc $loc (Missing "type"))
+				       [ Vardef { varname = v ;
+						  const = false ;
+						  vartype = Typename empty_long_ident ;
+                                                  constrain = None ;
+						  vinit = i }]}
+                                    
+| vdef=vardef { p_map vdef (fun d -> pv (Vardef d)) }
+              
+| z=procdecl SEMI { z >>= (fun d -> pv [Procdecl d]) }
+| z=procdef       { z >>= (fun d -> pv [Procdef d]) }
+
 (* 'with' or 'use' clause *)
-(* SPEC: clause is called 'context_item' *)
-clause: 
+withclause: 
 | WITH names=p_comalist(p_dotted_name) SEMI { p_map names (fun n -> pv (With n)) }
 | USE  names=p_comalist(p_dotted_name) SEMI { p_map names (fun n -> pv (Use n)) }
+| USE TYPE names=p_comalist(p_dotted_name) SEMI { p_map names (fun n -> pv (Usetype n)) } 
 
-(* A compilation unit is either a program, a package signature, or a package body. *)
-compilation_unit:
-| p = program                     { p >>= (fun p -> pv (Program p)) }
-| PRIVATE? p = package_sig        { p >>= (fun p -> pv (Package_Sig p)) }
-
-(* Not sure private can occur here, but it removes yet another shift/reduce conflict. *)
-| PRIVATE? p = package_body       { p >>= (fun p -> pv (Package_Body p)) }
-| generic                         { assert false }
-
-init_block: BEGIN b=block         { b }
-                       
-empty: { [] }
-
-
+(* Ignored *)
+withprivate: WITH PRIVATE { }
+                   
+p_declarations: d=p_flatlist(declaration) { d }
+                   
+                   
 (********************  PACKAGES  *********************)
         
 package_sig: 
 PACKAGE package_name=dotted_name IS 
-        pdecl=p_flatlist(declaration(proc_and_fun_decl))
+        pdecl=declaration*
         package_comments=END endname=dotted_name SEMI
                                                                                      
-			 { expected_long package_name endname ;
-			   pdecl >>= (fun package_declarations ->
-				      pv { package_name ; package_declarations ; package_comments ; package_init = None })
+			 { expected_long package_name endname
+                           >>>
+			     pv { package_name ;
+                                  package_sig = true ;
+                                  package_declarations = pdecl ;
+                                  package_comments ;
+                                  package_init = None }
                          }
                                           
 package_body:
-    PACKAGE BODY package_name=dotted_name IS
-        pdecl=definitions
+PACKAGE BODY package_name=dotted_name IS
+        pdecl=declaration*
         b=init_block?
         package_comments=END endname=dotted_name SEMI
                                           
-			 { expected_long package_name endname ;
-			   pdecl >>= (fun package_declarations ->
+                         { expected_long package_name endname
+                           >>>                  
                              (swopt b) >>= (fun b ->
-			                pv { package_name ; package_declarations ; package_comments ; package_init = b }))
-			 }
+			     pv { package_name ;
+                                  package_sig = false ;
+                                  package_declarations = pdecl ;
+                                  package_comments ;
+                                  package_init = b })
+			   }
+
+init_block: BEGIN b=exn_block     { b }
+                   
+                   
 
 (****************  PROCEDURES AND FUNCTIONS  *****************)
 
-definitions: d=p_flatlist(declaration(proc_and_fun_def)) { d }
-                         
-(* A simple program *)
-program: p=proceduredef(empty) { pv p }
-                                  
-proceduredecl(ARGS):
-       PROCEDURE procname=loc_ident args=ARGS
-                   { { procname ; args ; declarations=[] ; body=vun ; proccomments=[] ; rettype = None ; sub_errors = pv () } : decl_only procdef }
-
-(* A procedure definition *)
-proceduredef(ARGS):
-       pdecl = proceduredecl(ARGS) IS
-           declarations=definitions
-       BEGIN
-           body=exn_block?              
-       coms=END endname=loc_ident? SEMI
-							
-                  { expected ~may_be_empty:true pdecl.procname (Common.option_default endname empty_ident) ; 
-		    let body =
-		      match body with
-		      | None -> pv ~err:(mkloc $loc(body) (Missing "body")) vun
-		      | Some b -> b
-		    in
-
-		    let sub_errors =
-		      body >>= (fun _ -> declarations >>= (fun _ -> pv ()))
-		    in
-		    
-                    { pdecl with
-		      declarations = declarations.pv ;
-		      body = body.pv ;
-		      proccomments = coms ;
-		      sub_errors } : def procdef }
-(*
-(* Empty procedure *)                  
-|     pdecl = proceduredecl(ARGS) IS?
-      coms=END endname=loc_ident SEMI
-                   {
-                     expected pdecl.procname endname ; 
-                     let sub_errors =
-                       pv ~err:(mkloc $loc (Empty ("procedure " ^ i2s pdecl.procname.v))) ()
-                     in
-                     ( { pdecl with
-                         proccomments = coms ;
-                         sub_errors } : def procdef) }
- *)                   
-functiondecl:
-       FUNCTION procname=loc_ident args=argsdef RETURN ret=typename
-                   { { procname ; args ; declarations=[] ; body=vun ; proccomments=[] ; rettype = Some ret ; sub_errors = pv () } : decl_only procdef }
-                                  
-functiondef:
-       fdecl = functiondecl IS
-           decl=definitions
-       BEGIN
-         body=exn_block
-       coms=END endname=loc_ident? SEMI
-						   
-                { expected ~may_be_empty:true fdecl.procname (Common.option_default endname empty_ident) ; 
-                  
-		  let sub_errors =
-		    body >>= (fun _ -> decl >>= (fun _ -> pv ()))
-		  in
-		  { fdecl with
-		    declarations = decl.pv ;
-		    body = body.pv ;
-		    proccomments = coms ;
-		    sub_errors } : def procdef }
-
-|     fdecl = functiondecl IS?
-      coms=END endname=loc_ident SEMI
-               {
-                 expected fdecl.procname endname ;
-                 let sub_errors =
-                   pv ~err:(mkloc $loc (Empty ("function " ^ i2s fdecl.procname.v))) ()
-                 in
-                 { fdecl with
-                   proccomments = coms ;
-                   sub_errors } }
-                
+procdecl:
+| PROCEDURE procname=loc_ident args=argsdef
+                                      { pv { procname ;
+                                             args ;
+                                             rettype = None } }
+| FUNCTION procname=loc_ident args=argsdef RETURN ret=typename
+                                      { pv { procname ;
+                                             args ;
+                                             rettype = Some ret } }
+                                          
 (* Arguments *)
 argsdef: l=loption(parlist(arg, SEMI)) { List.flatten l }
                                                         
@@ -331,14 +309,52 @@ arg: names=comalist(loc_ident) COLON mode=mode? argtype=typename argdefault=argd
                                       names }
 
 argdefault: ASSIGN e=expr { e }
-                                  
+
 mode: 
 | IN { In }
 | OUT { Out }
 | IN OUT { InOut }
 
-    
-vardef:
+                                      
+procdef:
+|      decl = procdecl IS
+           declarations=declaration*
+       BEGIN
+           body=exn_block?    
+  coms=END endname=loc_ident? SEMI
+							
+                     { decl >>= (fun decl ->
+                         expected ~may_be_empty:true decl.procname (Common.option_default endname empty_ident)
+                         >>>
+		           let body =
+		             match body with
+		             | None -> pv ~err:(mkloc $loc(body) (Missing "body")) vun
+		             | Some b -> b
+		           in
+                           
+		           body >>= (fun body ->
+		             
+                             pv { decl ;
+		                  declarations ;
+		                  body ;
+		                  proc_comments = coms } )) }
+                                  
+(* Empty procedure *)                  
+|  decl = procdecl IS?
+   coms=END endname=loc_ident SEMI
+                                  
+                   { decl >>= (fun decl ->
+                       expected decl.procname endname
+                       >>>
+                         let kw = match decl.rettype with None -> "procedure " | _ -> "function " in
+                         pv ~err:(mkloc $loc (Empty (kw ^ i2s decl.procname.v))) ()
+                         >>>
+                           pv { decl ;
+                                declarations = [] ;
+                                body = vun ;
+                                proc_comments = coms } ) }
+
+%inline vardef:
 (* Constant or variable declaration *)
 | names=comalist(loc_ident) COLON ALIASED? cst=CONSTANT?
    vt=vartype? i=initialize? SEMI
@@ -366,61 +382,14 @@ vardef:
 			       names)) }
 
 vartype: t=type_expr c=subt_constraint?    { (t, c) }
-                                              
-                                               
-(**************  DECLARATIONS AND DEFINITIONS  ***************)
-declaration(proc_and_fun):
-
-(* Private is ignored *)                                              
-| PRIVATE        { pv [] }
-                                              
-(* Package renaming *)
-| PACKAGE i=loc_ident RENAMES p=dotted_name SEMI  { pv [ Rename { pack_alias = i ;
-								  pack_orig = p }]}
-
-| PACKAGE i=loc_ident IS NEW o=dotted_name l=parlist(ltype, COMMA) SEMI
-                                               { pv [ Packnew (i, o, l) ] }
-
-                                            
-(* Function renaming *)
-| p=proceduredecl(argsdef) RENAMES i=dotted_name SEMI { pv [ Funrename { fun_alias = p ;
-                                                                         fun_orig = i }]}
-| f=functiondecl RENAMES i=dotted_name SEMI           { pv  [ Funrename { fun_alias = f ;
-                                                                          fun_orig = i }]}
-| c = clause                                          { p_map c (fun x -> pv (Withclause x)) }
-                                       
-(* Constant or variable, but type is missing *)							    
-| v=loc_ident i=initialize? SEMI   { pv ~err:(mkloc $loc (Missing "type"))
-				       [ Vardef { varname = v ;
-						  const = false ;
-						  vartype = Typename empty_long_ident ;
-                                                  constrain = None ;
-						  vinit = i }]}
-
-| vdef=vardef { p_map vdef (fun d -> pv (Vardef d)) }
-
-(* Procedure or function declaration or definition *)
-| z=proc_and_fun                                                { z >>= (fun d -> pv [Procdef d]) }
-
-| TYPE l=loc_ident SEMI                                         { pv [ Typedef (l, [], Abstract, None) ] }
-| TYPE l=loc_ident args=argsdef IS
-         NEW? t=type_expr withprivate? r=subt_constraint? SEMI  { t >>= (fun t -> pv [ Typedef (l, args, t, r) ]) }
-
-| TYPE l=loc_ident args=argsdef IS RANGE e=expr SEMI            { pv [Typedef (l, args, Typename empty_long_ident, Some (Range_constraint e)) ] }
-                                                        
-| SUBTYPE l=loc_ident IS p=dotted_name r=subt_constraint? SEMI  { pv [ Subtype (l, p, r) ]}
-
-| generic { assert false }
-
-(* Ignored *)
-withprivate: WITH PRIVATE { }
+                         
 
 typename:
 | t=dotted_name                    { t }
 (*| ALIASED t=dotted_name                    { t } *)
-| ACCESS ALL? t=typename           { { pos = t.pos ; v = access :: t.v } }
-| t=typename TICK i=loc_ident      { mkloc $loc (t.v @ [i.v]) }
-| EXCEPTION                        { mkloc $loc [i_exception] }
+| ACCESS ALL? t=typename           { (mkloc $loc access) :: t  }
+| t=typename TICK i=loc_ident      { t @ [i] }
+| EXCEPTION                        { [mkloc $loc i_exception] }
                       
 ltype:
 | l=loc_ident IMPLY t=typename         { (Some l, t) }
@@ -434,19 +403,7 @@ subt_constraint:
 | RANGE r=expr                                           { Range_constraint r }
             
 initialize: ASSIGN e=expr { e }
-
-(* Procedure or function definition or declaration *)
-proc_and_fun_def:
-| p=proceduredef(argsdef)                                      { pv (p:def procdef) }
-| f=functiondef                                                { pv f }
-
-(* Open and rebuild record to force retyping of phantom type. *)                                                               
-| d=proc_and_fun_decl                                          { d >>= (fun d -> pv ( { d with procname = d.procname }:def procdef)) }
       
-(* Procedure or function declaration *)
-proc_and_fun_decl:
-| p=proceduredecl(argsdef) SEMI                                { pv p }
-| f=functiondecl SEMI                                          { pv f }
       
 (************************  TYPEDEFS  *************************)
 type_expr:
@@ -467,13 +424,18 @@ exn_block: b=block e=exn_handler?                      { match e with None -> b
 
 exn_handler:
 | EXCEPTION l=p_nonempty_list(when_clause)   { l }
-                       
+
+in_or_of:
+| IN                          { `IN }
+| OF                          { `OF }
+
 statement: 
 | NULL SEMI                                                        { pv vun }
 | DELAY e=expr SEMI                                                { pv (App (Value Builtins.delay, [([], e)])) }
 | RAISE e=expr SEMI                                                { pv (App (Value Builtins.araise, [([], e)])) }
+| RAISE SEMI                                                       { pv (App (Value Builtins.araise, [])) }
 | GOTO e=expr SEMI                                                 { pv (App (Value Builtins.goto, [([], e)])) }
-| EXIT SEMI                                                        { pv (Id (mkloc $loc [i_exit])) }
+| EXIT SEMI                                                        { pv (Id (mkloc $loc i_exit)) }
               
 | e=expr SEMI                                                      { pv e }                 
 
@@ -481,48 +443,68 @@ statement:
 
 | IF e1=expr THEN s1=block s2=elsif END IF SEMI                    { s1 >>= (fun s1 -> s2 >>= (fun s2 -> pv (If (e1, s1, s2)))) }
 
-| FOR l=loc_ident IN r=expr LOOP s=block END LOOP SEMI             { s >>= (fun s -> pv (For (l, r, s))) }
+| FOR l=loc_ident iof=in_or_of rv=REVERSE? r=expr
+  LOOP s=block END LOOP SEMI                                       { s >>= (fun s -> pv (For (iof, rv=Some (), l, r, s))) }
+						     
 | WHILE e=expr LOOP s=block END LOOP SEMI                          { s >>= (fun s -> pv (While (e, s))) }
 
-| LOOP s=block END LOOP SEMI                                       { s >>= (fun s -> pv (While (Id (mkloc $loc [i_exit]), s))) }
+| LOOP s=block END LOOP SEMI                                       { s >>= (fun s -> pv (While (Id (mkloc $loc i_exit), s))) }
 
-| DECLARE d=definitions BEGIN s=exn_block END SEMI
-  	                          { d >>= (fun d -> s >>= (fun s -> pv (Declare (d, s)))) }
+| bl=block_label? DECLARE
+       d=p_declarations
+  BEGIN s=exn_block END el=loc_ident? SEMI
+  								   {
+								     expected ~may_be_empty:true
+									      (Common.option_default bl empty_ident)
+									      (Common.option_default el empty_ident)
+                                                                     >>>
+								       s >>= (fun s ->
+                                                                       d >>= (fun d -> pv (Declare (d, s)))) }
 
 | EXIT WHEN e=expr SEMI                                            { pv (Exitwhen e) }
 
 | CASE e=expr IS l=p_nonempty_list(when_clause) END CASE SEMI      { l >>= (fun l -> pv (Case (e, l))) }
 
 | RETURN e=expr SEMI                                               { pv (Return e) }
+| RETURN SEMI                                                      { pv (Return vun) }
 
+| BEGIN s=exn_block END SEMI                                       { s >>= (fun s -> pv (Declare ([], s))) }
+             
 elsif:
 | ELSIF e1=expr THEN s1=block s2=elsif                             { s1 >>= (fun s1 -> s2 >>= (fun s2 -> pv (If (e1, s1, s2)))) }
 | ELSE s2=block                                                    { s2 }
 | empty                                                            { pv vun }
 
+
+block_label: i=loc_ident COLON                                     { i }
+
+(* Arrrh, a curse on LR1 grammars! *)								   
 when_clause: 
-| WHEN l=separated_nonempty_list(BAR, expr) IMPLY s=block      { s >>= (fun s -> pv (Match (l, s))) }
-                                                        
-(* Others is an identifier *)                                                        
-(* | WHEN OTHERS IMPLY s=block                                    { s >>= (fun s -> pv (Others s)) } *)
+| WHEN i=loc_ident COLON l=separated_nonempty_list(BAR, expr) ib=imply_block  { ib (Some i) l }
+| WHEN e=expr BAR l=separated_nonempty_list(BAR, expr) ib=imply_block         { ib None (e :: l) }
+| WHEN e=expr ib=imply_block                                                  { ib None [ e ] }
+(* Others is an identifier *)
+		   
+imply_block:  IMPLY s=block              { fun lbl l -> (s >>= (fun s -> pv (Match (lbl, l, s)))) }
+									  
+
 
 (***********************  EXPRESSIONS  ************************)
 
 (* Expressions which may be followed by a DOT or PARENTHESIS *)
 dot_expr:
 | v=adavalue                                { Value v }					    
-| l=loc_ident                               { Id (mkloc $loc [l.v]) }
-| e=dot_expr a=parlist(nexpr, COMMA)        { App (e, a) }
+| l=loc_ident                               { Id l }
 | e=dot_expr DOT l=loc_ident                { Select (e, l) }
-| e=dot_expr TICK i=loc_ident               { Tick (e,i) }
-| e=dot_expr TICK _a=ACCESS                 { Tick (e,mkloc $loc(_a) access) }
-| l=pars(comalist(nexpr))                   { Tuple l }
-| NEW n=dotted_name l=tickinit              { New (n, l) }
-| NEW n=dotted_name a=parlist(expr, COMMA)  { New (n, a) }
+| e=dot_expr a=parlist(nexpr, COMMA)        { App (e, a) }
+| l=parlist(nexpr, COMMA)                   { Tuple l }
+| e1=dot_expr TICK e2=dot_expr              { Tick (e1,e2) }
                         
 expr:
 | e=dot_expr                                { e }
 | NEW l=dotted_name                         { New (l, []) }
+| NEW n=dotted_name TICK e=dot_expr         { New (n, [e]) }
+| NEW n=dotted_name a=parlist(expr, COMMA)  { New (n, a) }
 | e1=expr op=INFIX_OP e2=expr               { App (Value op, [ ([], e1) ; ([], e2) ]) }
 | op=PREFIX_OP e=expr                       { App (Value op, [ ([], e) ]) }
 | e=expr IN r=expr                          { Is_in (e, r) }
@@ -530,12 +512,10 @@ expr:
 
 (* Range expressions *)                                     
 | BRAKET                                    { Unconstrained }
-| e1=dot_expr DOTDOT e2=dot_expr            { Interval(e1, e2) }
+| e1=dot_expr DOTDOT e2=expr                { Interval(e1, e2) }
 | e1=dot_expr RANGE e2=expr                 { Range(e1, e2) }
 | e=dot_expr TICKRANGE i=pars(pnum)?        { TickRange(e, Common.option_map i get_num) }
                     
-tickinit: TICK l=parlist(expr,COMMA)        { l }
-		   
 nexpr:
 | e=expr                                    { ([], e) }
 | l=label IMPLY e=expr                      { (l, e) }
@@ -572,30 +552,40 @@ pnum: n=NUM                            { mkloc $loc n }
 | AND     { band }
 | OR      { bor }
 | OR ELSE { bor }
+| XOR     { bxor }
 
 %inline PREFIX_OP:
 | NOT     { bnot }
-| MINUS   { neg }       
+| MINUS   { neg }
+| PLUS    { idplus }
+| ABS     { abs }
 
-generic: GENERIC { failwith "Cannot handle generic" }
-    
-garbage: l=garbage_token+ { l }
-        
+
 garbage_token:
-ARRAY | ASSIGN | BEGIN | BODY | BRAKET | CASE | CHAR | COLON
-  | COMMA | CONSTANT | DECLARE | DELAY | DOT | DOTDOT | ELSE
-  | ELSIF | END | FOR | FUNCTION | IDENT | IF | IMPLY | IN
-  | IS | LOOP | LPAREN | NULL | NUM | OF | OTHERS | OUT | PACKAGE
-  | PROCEDURE | RANGE | RECORD | RENAMES | RETURN | RPAREN | SEMI
-  | STRING | SUBTYPE | THEN | TICK | TICKRANGE | TYPE | USE | WHEN | WHILE
-  | WITH         
-  | ABS | AMPAND | AND | EQUAL | GEQ | GT | LEQ | LT | MINUS | MOD
-  | NOT | NOTEQ | OR | PLUS | REM | SLASH
-  |STAR | STARSTAR | XOR
-  | ABSTRACT | ACCEPT | ACCESS | ALIASED
-  | ENTRY | EXCEPTION | EXIT | GENERIC | GOTO
-  | LIMITED | NEW | PRAGMA | PRIVATE | PROTECTED | RAISE | REQUEUE
-  | SELECT | SEPARATE | TERMINATE | TASK
-  | REVERSE | BAR | LTLT | GTGT
-  | DO | TAGGED | UNTIL { () }
-
+| ABS | ABSTRACT | ACCEPT | ALL
+| ACCESS | ALIASED | AND 
+| ARRAY | BEGIN | BODY 
+| CASE 
+| CONSTANT | DECLARE | DELAY | DELTA | DIGITS
+| DO | ELSE | ELSIF 
+| ENTRY | EXCEPTION | EXIT 
+| FOR | FUNCTION | GENERIC | GOTO 
+| IF | IN | IS | LIMITED | ISNEW
+| LOOP | MOD | NEW | NOT 
+| NULL | OF | OR 
+| OUT | PACKAGE | PRIVATE 
+| PROCEDURE | PROTECTED | RAISE | RANGE 
+| RECORD | REM | RENAMES | REQUEUE 
+| RETURN | REVERSE | SELECT | SEPARATE 
+| SUBTYPE | TAGGED | TASK | TERMINATE 
+| THEN | TYPE | UNTIL | USE 
+| WHEN | WHILE | WITH | XOR
+| DOT | LT | LPAREN | PLUS | 
+| BAR | AMPAND | STAR | RPAREN
+| SEMI | MINUS | SLASH | COMMA
+| GT | COLON | EQUAL | TICK | TICKRANGE
+| DOTDOT | LTLT | BRAKET | LEQ
+| STARSTAR | NOTEQ | GTGT | GEQ
+| ASSIGN | IMPLY
+             { }
+             

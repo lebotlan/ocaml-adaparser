@@ -1,4 +1,6 @@
 (library
  (name adaenv)  
- (modules adaenv))
+ (public_name adaenv)
+(modules adaenv))
+
  
