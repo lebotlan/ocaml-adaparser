@@ -4,22 +4,22 @@ open Adavalues.Adavalue
 open Ast
 open Parse_errors
 
-(* See astmap.ml for all explanations *)
+(*** See astmap.ml for all explanations ***)
 
-type ('a,'b) ret =
-  { rval : 'a ;
-    racu : 'b }
+type ('v,'a) ret =
+  { rval : 'v ;
+    racu : 'a }
 
-val return: 'a -> 'b -> ('a,'b) ret
+val return: 'v -> 'a -> ('v,'a) ret
 
-type ('b, 'a) mapper = 'b -> 'a -> ('b, 'a) ret
+type ('v, 'a) mapper = 'v -> 'a -> ('v, 'a) ret
 
 type label_namespace = A | S
 
 class ['a] tree_mapper:
   object
     method upacu: 'a -> 'a -> 'a
-    method up : 'b . 'a -> ('b,'a) ret -> ('b,'a) ret
+    method up : 'v . 'a -> ('v,'a) ret -> ('v,'a) ret
         
     method adavalue: (expr adavalue, 'a) mapper
     method arg: (arg, 'a) mapper
