@@ -9,6 +9,7 @@
  *            such acu are never propagated upwards.
  *
  *)
+open Astlib
 open Parse_errors
 open Ast
     

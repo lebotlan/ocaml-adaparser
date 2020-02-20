@@ -64,7 +64,7 @@ let lwt_parse_file path =
         Lwt_io.printf "\nLexer state :\n   " ;%lwt
         let pos = lexbuf.lex_start_p in
         lwt_dumplex feeder lexbuf 10 ;%lwt
-        Lwt.fail_with (Printf.sprintf "%s:%d:%d Sorry, this is an unexplained syntax error."
+        Lwt.fail_with (Printf.sprintf "%s:%d:%d Sorry, this is an unexplained syntax error (but maybe this error is too unusual to deserve an explanation)."
                          pos.pos_fname pos.pos_lnum (1 + pos.pos_cnum - pos.pos_bol) )
     end
 

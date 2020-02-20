@@ -1,7 +1,7 @@
 open Term2
 open Unix
-open Astlib
 open Adaparser
+open Astreader
     
 (* Set of files already seen. *)
 let seen = Hashtbl.create 2000

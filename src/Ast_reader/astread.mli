@@ -1,3 +1,4 @@
+open Astlib
 open Ast
 open Parse_errors
 open Namespace

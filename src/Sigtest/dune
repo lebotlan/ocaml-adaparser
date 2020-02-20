@@ -1,0 +1,7 @@
+(library
+ (name sigtest)
+ (public_name sigtest)
+ 
+ (modules sigtest)
+ (libraries astlib astreader adasig))
+ 

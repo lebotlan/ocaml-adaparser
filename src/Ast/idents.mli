@@ -9,7 +9,7 @@ val norm: string -> s
 type loc_ident = s loc
 type long_ident = loc_ident list
 
-(* Used to pretty-print & to compare arguments/function names. Do not add extra symbols. *)
+(* These are used to pretty-print, but ALSO to compare arguments/function names. Do not add extra symbols. *)
 val i2s: s -> string
 val l2s: loc_ident -> string
 val li2s: long_ident -> string

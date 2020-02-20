@@ -4,6 +4,7 @@ open Idents
 open Parse_errors
 open Loc
 open Adaparser
+open Astreader
 open Astmap
     
 type path = string

@@ -1,10 +1,13 @@
 open Astmap
+open Astlib
 open Ast
 open Parse_errors
 open Namespace
 open Loc
 
 (*** All errors ***)
+
+(* Old style, does not use Astmap *)
 
 let rec all_errors_declaration = function
   | Withclause _

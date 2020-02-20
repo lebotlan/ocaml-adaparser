@@ -1,0 +1,6 @@
+(library
+ (name astlib)
+ (public_name astlib)
+ 
+ (modules loc idents parse_errors ast astprint namespace)
+ (libraries compiler-libs.common shared_vals adavalues))

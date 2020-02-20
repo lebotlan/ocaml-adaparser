@@ -2,7 +2,7 @@
  (name adanorm)
  (public_name adanorm)
  
- (libraries astlib adaparser lwtutils)
+ (libraries astlib adaparser astreader lwtutils)
 
  (preprocess (pps lwt_ppx)))
  

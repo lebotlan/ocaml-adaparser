@@ -1,0 +1,6 @@
+(library
+ (name astreader)
+ (public_name astreader)
+ 
+ (modules astmap astread)
+ (libraries astlib))

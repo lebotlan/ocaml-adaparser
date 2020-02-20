@@ -1,3 +1,4 @@
+open Astlib
 open Namespace
 
 (*** Check if an Adasig complies with a procdecl ***)
