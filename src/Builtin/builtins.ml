@@ -7,6 +7,7 @@ type v = expr adavalue
 
 let bad_nargs l n title = raise (Bad_arguments (Printf.sprintf "(builtin) %s: bad number of arguments (%d instead of %d)" title (List.length l) n))
 
+(* overloaded functions: try to apply all of them, take the first that succeeds *)
 let rec apply_all env args = function
   | [] -> assert false
   | [ lastf ] -> lastf env args

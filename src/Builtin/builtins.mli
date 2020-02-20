@@ -5,11 +5,11 @@ exception Bad_arguments of string
 
 type v = expr adavalue
 
-val rem: v (* Not implemented yet *)
+val delay: v 
 
-val delay: v
-val araise: v
-val goto: v
+val rem: v (* Not implemented yet *)
+val araise: v (* Not implemented yet *)
+val goto: v (* Not implemented yet *)
 
 val times: v
 val div: v

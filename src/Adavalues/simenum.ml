@@ -180,7 +180,7 @@ let index v =
   check_range "index" v.typ v.pos ;
   mkint v.pos
 
-let cmp v1 v2 = Pervasives.compare v1.pos v2.pos
+let cmp v1 v2 = Stdlib.compare v1.pos v2.pos
 
 let apply1 fname f v =
   let newpos = f v.pos in

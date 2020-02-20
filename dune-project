@@ -1,6 +1,6 @@
-(lang dune 1.0)
+(lang dune 1.2)
 
 (name adaparser)
 
 
-(using menhir 1.0)
+(using menhir 2.0)

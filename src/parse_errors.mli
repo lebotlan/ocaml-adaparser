@@ -3,8 +3,9 @@ type parser_error =
   (* Received string does not match expected string (e.g. end Foo instead of end Bar). *)
   | Mismatch of string * string
 
-  (* Ignored stuff (e.g. 'y' somewhere in the file). 
-   * Error message. N is the number of ignored TOKENS. *)
+  (* Ignored stuff (e.g. 'y' somewhere in the file).
+   * (msg, n)
+   * msg: error message. N is the number of ignored TOKENS. *)
   | Ignored of string * int
 
   (* Missing stuff (e.g. missing body *)
@@ -27,6 +28,8 @@ val err2s: parser_error -> string
 
 type lp_error = parser_error Loc.loc
 
+val lp2s: lp_error -> string
+
 exception Syntax_error of lp_error
 
 (* Raise syntax_error *)
@@ -37,8 +40,6 @@ type 'a pv =
   { pv: 'a ;
     errors: lp_error list }
 
-val lp2s: lp_error -> string
-
 (*** Parse-error monad ***)
 
 (* Returns a value with/without errors. *)
@@ -46,26 +47,31 @@ val pv: ?err:lp_error -> 'a -> 'a pv
 
 val map: 'a pv -> ('a -> 'b) -> 'b pv
 
-val bind: 'a pv -> ('a -> 'b pv) -> 'b pv
-val (>>=): 'a pv -> ('a -> 'b pv) -> 'b pv
+val bind:    'a pv -> ('a -> 'b pv) -> 'b pv
+val (>>=):   'a pv -> ('a -> 'b pv) -> 'b pv
+val (let>=): 'a pv -> ('a -> 'b pv) -> 'b pv
+val (let>>): 'a pv -> ('a -> 'b) -> 'b pv
+
+val (and>=): 'a pv -> 'b pv -> ('a * 'b) pv
 
 (* Lists *)
 val (>>::): 'a pv -> 'a list pv -> 'a list pv
 val pnil: 'a list pv
 
-val p_map: 'a list pv -> ('a -> 'b pv) -> 'b list pv
+val l_map: 'a list pv -> ('a -> 'b pv) -> 'b list pv
 
 (* Unit *)
 val punit: unit pv
 val (>>>): unit pv -> 'a pv -> 'a pv
+    
 val unitjoin: ('a -> unit pv) -> 'a list -> unit pv
 
 (* val (>>+) agglomerates *)
 open Loc
-    
-val swloc: 'a pv loc -> 'a loc pv
 
-val swopt: 'a pv option -> 'a option pv
-    
+(* Switch *)
+
+val swloc: 'a pv loc -> 'a loc pv
+val swopt: 'a pv option -> 'a option pv   
 val swlist: 'a pv list -> 'a list pv
     

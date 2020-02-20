@@ -22,7 +22,7 @@ let parse_file path =
     Printf.printf "\nLexer state :\n   " ;
     let pos = lexbuf.lex_start_p in
     dumplex feeder lexbuf 10 ;
-    failwith (Printf.sprintf "%s:%d:%d Sorry, this is an unexplained syntax error."
+    failwith (Printf.sprintf "%s:%d:%d Sorry, this is an unexplained syntax error (but maybe this error is too unusual to have an explanation)."
                 pos.pos_fname pos.pos_lnum (1 + pos.pos_cnum - pos.pos_bol) )
 
 

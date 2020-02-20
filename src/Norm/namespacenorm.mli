@@ -26,7 +26,7 @@ val init_nmspace: nmspace
 
 type path = string
 
-(* Directories in which ads file are looked for. *)
+(* Directories in which ads files are looked for. *)
 type includedirs = path list
 
 (* Cached *)

@@ -1,3 +1,4 @@
+(* Simulate the ada environment (time, various side-effects, ...) *)
 
 type env
 

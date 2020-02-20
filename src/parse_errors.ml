@@ -26,16 +26,16 @@ let syntax_error pos err = raise (Syntax_error { pos ; v = err } )
 
 type lp_error = parser_error Loc.loc
 
+let lp2s lpe = Printf.sprintf "%s: %s" (Loc.loc2s lpe) (err2s lpe.v)
+
 let () = Printexc.register_printer
     (function
-      | Syntax_error pel -> Some (Printf.sprintf "%s: %s" (loc2s pel) (err2s pel.v))
+      | Syntax_error lpe -> Some (lp2s lpe)
       | _ -> None)
 
 type 'a pv =
   { pv: 'a ;
     errors: lp_error list }
-
-let lp2s lpe = Printf.sprintf "%s: %s" (Loc.loc2s lpe) (err2s lpe.v)
 
 let pv ?err x =
   let errors = match err with
@@ -45,7 +45,8 @@ let pv ?err x =
   { pv = x ; errors }
 
 let punit = pv ()
-
+let pnil = pv []
+    
 let map x f = { pv = f x.pv ; errors = x.errors }
 
 let bind x f =
@@ -54,12 +55,16 @@ let bind x f =
     errors = List.rev_append x.errors r.errors }
 
 let (>>=) = bind
-  
+let (let>=) = bind
+let (let>>) px f = px >>= (fun x -> pv (f x))
+
+let (and>=) a b =
+  { pv = (a.pv, b.pv) ;
+    errors = List.rev_append a.errors b.errors }
+
 let (>>::) x l = x >>= (fun vx -> l >>= (fun vl -> pv (vx :: vl)))
 
-let pnil = { pv = [] ; errors = [] }
-
-let p_map ll f =
+let l_map ll f =
   let rec loop = function
     | [] -> pnil
     | x :: xs ->
@@ -78,9 +83,10 @@ let swopt = function
   | None -> { pv = None ; errors = [] }
   | Some x -> { pv = Some x.pv ; errors = x.errors }
               
-let swlist l = p_map { pv = l ; errors = [] } (fun x -> x)
+let swlist l = l_map { pv = l ; errors = [] } (fun x -> x)
 
 let (>>>) x y = x >>= (fun () -> y)
+(* let (let>>) x y = x >>> (y ()) *)
 
 let unitjoin f l = List.fold_left (fun acu x -> acu >>= (fun () -> f x)) punit l
 

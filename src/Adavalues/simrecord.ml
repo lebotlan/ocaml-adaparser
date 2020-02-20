@@ -39,8 +39,8 @@ let belongs vbelongs rt r =
   in
   
   rt.tcs = r.cs &&
-  let f1 = List.sort Pervasives.compare (List.map (fun { fname ; ftype } -> { fname = norm_cs r.cs fname ; ftype }) rt.tfields)
-  and f2 = List.sort Pervasives.compare (List.map (fun (a,b) -> (norm_cs r.cs a, b)) r.fields) in
+  let f1 = List.sort Stdlib.compare (List.map (fun { fname ; ftype } -> { fname = norm_cs r.cs fname ; ftype }) rt.tfields)
+  and f2 = List.sort Stdlib.compare (List.map (fun (a,b) -> (norm_cs r.cs a, b)) r.fields) in
 
   loop f1 f2
 

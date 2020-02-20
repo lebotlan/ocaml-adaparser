@@ -159,7 +159,7 @@ p_list(ELT):
 | empty { pv [] }
 | l=p_nonempty_list(ELT) { l }
 
-p_flatlist(ELT): l=p_list(ELT) { l >>= (fun l -> pv (List.flatten l)) }
+p_flatlist(ELT): pl=p_list(ELT) { let>> l = pl in List.flatten l }
       
 (* Localized identifier *)
 %inline loc_ident:
@@ -185,7 +185,7 @@ file: decls=declaration* file_comments=EOF { pv { path = "" ;
 						  fpos = mkpos $loc } }
 
 (* IDENTs found at the beginning of the file are ignored (and recorded as errors). *)                      
-| _id=IDENT pf=file { pf >>= (fun f -> pv ~err:(mkloc $loc(_id) (Ignored ("Ident", 1))) f) }
+| _id=IDENT pf=file { let>= f = pf in pv ~err:(mkloc $loc(_id) (Ignored ("Ident", 1))) f }
 
 (* Get rid of unused tokens warning. *)                    
 | GTGT GTGT GTGT garbage_token EOF { assert false }
@@ -200,7 +200,7 @@ declaration:
 | GENERIC            { failwith "Cannot handle generic" }
 | PROCEDURE loc_ident argsdef ISNEW { failwith "Procedure is new : not implemented" }
                                  
-| c = withclause     { p_map c (fun x -> pv (Withclause x)) }
+| c = withclause     { l_map c (fun x -> pv (Withclause x)) }
 
 (* Package renames *)
 | PACKAGE i=loc_ident RENAMES p=dotted_name SEMI  { pv [ Rename { pack_alias = i ;
@@ -215,15 +215,15 @@ declaration:
 (* Type defs *)                        
 | TYPE l=loc_ident SEMI                                         { pv [ Typedef (l, [], Abstract, None) ] }
 | TYPE l=loc_ident args=argsdef alt(IS,ISNEW)
-              t=type_expr withprivate? r=subt_constraint? SEMI  { t >>= (fun t -> pv [ Typedef (l, args, t, r) ]) }
-                                                        
+              pt=type_expr withprivate? r=subt_constraint? SEMI  { let>> t = pt in [ Typedef (l, args, t, r) ] }
+
 | TYPE l=loc_ident args=argsdef IS RANGE e=expr SEMI            { pv [Typedef (l, args, Typename empty_long_ident, Some (Range_constraint e)) ] }
                                                         
 | SUBTYPE l=loc_ident IS p=dotted_name r=subt_constraint? SEMI  { pv [ Subtype (l, p, r) ]}
 				                                                
 (* Function renaming *)
-| p=procdecl RENAMES i=dotted_name SEMI { p >>= (fun decl -> pv [ Funrename { fun_alias = decl ;
-                                                                              fun_orig = i }]) }
+| p=procdecl RENAMES i=dotted_name SEMI { let>> decl = p in [ Funrename { fun_alias = decl ;
+                                                                          fun_orig = i }] }
                                        
 (* Constant or variable, but type is missing *)
 | v=loc_ident i=initialize? SEMI   { pv ~err:(mkloc $loc (Missing "type"))
@@ -233,16 +233,16 @@ declaration:
                                                   constrain = None ;
 						  vinit = i }]}
                                     
-| vdef=vardef { p_map vdef (fun d -> pv (Vardef d)) }
+| vdef=vardef { l_map vdef (fun d -> pv (Vardef d)) }
               
-| z=procdecl SEMI { z >>= (fun d -> pv [Procdecl d]) }
-| z=procdef       { z >>= (fun d -> pv [Procdef d]) }
+| z=procdecl SEMI { let>> d = z in [Procdecl d] }
+| z=procdef       { let>> d = z in [Procdef d] }
 
 (* 'with' or 'use' clause *)
 withclause: 
-| WITH names=p_comalist(p_dotted_name) SEMI { p_map names (fun n -> pv (With n)) }
-| USE  names=p_comalist(p_dotted_name) SEMI { p_map names (fun n -> pv (Use n)) }
-| USE TYPE names=p_comalist(p_dotted_name) SEMI { p_map names (fun n -> pv (Usetype n)) } 
+| WITH names=p_comalist(p_dotted_name) SEMI { l_map names (fun n -> pv (With n)) }
+| USE  names=p_comalist(p_dotted_name) SEMI { l_map names (fun n -> pv (Use n)) }
+| USE TYPE names=p_comalist(p_dotted_name) SEMI { l_map names (fun n -> pv (Usetype n)) } 
 
 (* Ignored *)
 withprivate: WITH PRIVATE { }
@@ -269,18 +269,18 @@ PACKAGE package_name=dotted_name IS
 package_body:
 PACKAGE BODY package_name=dotted_name IS
         pdecl=declaration*
-        b=init_block?
+        ob=init_block?
         package_comments=END endname=dotted_name SEMI
                                           
                          { expected_long package_name endname
                            >>>                  
-                             (swopt b) >>= (fun b ->
-			     pv { package_name ;
-                                  package_sig = false ;
-                                  package_declarations = pdecl ;
-                                  package_comments ;
-                                  package_init = b })
-			   }
+                             let>> b = swopt ob in
+			     { package_name ;
+                               package_sig = false ;
+                               package_declarations = pdecl ;
+                               package_comments ;
+                               package_init = b }
+			 }
 
 init_block: BEGIN b=exn_block     { b }
                    
@@ -302,11 +302,11 @@ procdecl:
 argsdef: l=loption(parlist(arg, SEMI)) { List.flatten l }
                                                         
 arg: names=comalist(loc_ident) COLON mode=mode? argtype=typename argdefault=argdefault?
-                                  { List.map (fun argname -> { argname ;
-                                                               argtype ;
-                                                               mode = Common.option_default mode In ;
-                                                               argdefault })
-                                      names }
+                                  { Common.mymap names (fun argname -> { argname ;
+									 argtype ;
+									 mode = Common.option_default mode In ;
+									 argdefault })
+				  }
 
 argdefault: ASSIGN e=expr { e }
 
@@ -317,42 +317,39 @@ mode:
 
                                       
 procdef:
-|      decl = procdecl IS
+|      pd = procdecl IS
            declarations=declaration*
        BEGIN
            body=exn_block?    
-  coms=END endname=loc_ident? SEMI
+           coms=END endname=loc_ident? SEMI
 							
-                     { decl >>= (fun decl ->
-                         expected ~may_be_empty:true decl.procname (Common.option_default endname empty_ident)
-                         >>>
-		           let body =
+                         { let>= body =
 		             match body with
 		             | None -> pv ~err:(mkloc $loc(body) (Missing "body")) vun
 		             | Some b -> b
-		           in
-                           
-		           body >>= (fun body ->
-		             
-                             pv { decl ;
-		                  declarations ;
-		                  body ;
-		                  proc_comments = coms } )) }
+
+			   and>= decl = pd in
+			   
+			   expected ~may_be_empty:true decl.procname (Common.option_default endname empty_ident)
+			   >>>                           
+			     pv { decl ;
+				  declarations ;
+				  body ;
+				  proc_comments = coms } }
                                   
 (* Empty procedure *)                  
-|  decl = procdecl IS?
+|  pd = procdecl IS?
    coms=END endname=loc_ident SEMI
                                   
-                   { decl >>= (fun decl ->
-                       expected decl.procname endname
-                       >>>
-                         let kw = match decl.rettype with None -> "procedure " | _ -> "function " in
-                         pv ~err:(mkloc $loc (Empty (kw ^ i2s decl.procname.v))) ()
-                         >>>
-                           pv { decl ;
-                                declarations = [] ;
-                                body = vun ;
-                                proc_comments = coms } ) }
+                   { let>= decl = pd in
+                     expected decl.procname endname
+                     >>>
+                       let kw = match decl.rettype with None -> "procedure " | _ -> "function " in
+                       pv ~err:(mkloc $loc (Empty (kw ^ i2s decl.procname.v)))
+			  { decl ;
+                            declarations = [] ;
+                            body = vun ;
+                            proc_comments = coms } }
 
 %inline vardef:
 (* Constant or variable declaration *)
@@ -363,23 +360,21 @@ procdef:
                      
                      match vt with
                      | None ->
-                        pv (List.map
-                              (fun v -> { varname = v ;
-                                          const ;
-                                          vartype = Typename empty_long_ident ;
-                                          constrain = None ;
-                                          vinit = i })
-                              names)
+                        pv (Common.mymap names
+					 (fun v -> { varname = v ;
+						     const ;
+						     vartype = Typename empty_long_ident ;
+						     constrain = None ;
+						     vinit = i }))
                         
-                     | Some (t,c) ->
-                        t >>= (fun t ->
-                         pv (List.map
-			       (fun v -> { varname = v ;
-					   const ;
-					   vartype = t ;
-                                           constrain = c ;
-					   vinit = i })
-			       names)) }
+                     | Some (pt,c) ->
+                        let>> t = pt in
+                        (Common.mymap names
+				      (fun v -> { varname = v ;
+						  const ;
+						  vartype = t ;
+						  constrain = c ;
+						  vinit = i })) }
 
 vartype: t=type_expr c=subt_constraint?    { (t, c) }
                          
@@ -410,17 +405,18 @@ type_expr:
 | TAGGED? LIMITED? PRIVATE                             { pv (Abstract) }
 | t=typename                                           { pv (Typename t) }
 | l=parlist(loc_ident, COMMA)                          { pv (Enumerate l) }
-| RECORD a=vardef* END RECORD                          { swlist a >>= (fun l -> pv (Record (List.flatten l))) }
+| RECORD a=vardef* END RECORD                          { let>> l = swlist a in Record (List.flatten l) }
 | ARRAY ranges=parlist(expr,COMMA) OF t=typename       { pv (Array (ranges, t)) }
 | DELTA x=pnum DIGITS y=pnum                           { pv (Delta (get_num x, get_num y)) }
 
 (***********************  STATEMENTS  ************************)
 
-block: l=p_nonempty_list(statement)                    { l >>= (fun l -> pv (Seq l)) }
+block: pl=p_nonempty_list(statement)                   { let>> l = pl in Seq l }
 
-exn_block: b=block e=exn_handler?                      { match e with None -> b
-                                                                    | Some l -> l >>= (fun l ->
-                                                                        b >>= (fun b -> pv (Try (b,l)))) }
+exn_block: pb=block e=exn_handler?                      { match e with None -> pb
+                                                                     | Some pl ->
+									let>> l = pl and>= b = pb in
+									Try (b,l) }
 
 exn_handler:
 | EXCEPTION l=p_nonempty_list(when_clause)   { l }
@@ -441,37 +437,38 @@ statement:
 
 | e1=expr ASSIGN e2=expr SEMI                                      { pv (Assign (e1, e2)) }
 
-| IF e1=expr THEN s1=block s2=elsif END IF SEMI                    { s1 >>= (fun s1 -> s2 >>= (fun s2 -> pv (If (e1, s1, s2)))) }
+| IF e1=expr THEN s1=block s2=elsif END IF SEMI                    { let>> s1 = s1 and>= s2 = s2 in If (e1, s1, s2) }
 
 | FOR l=loc_ident iof=in_or_of rv=REVERSE? r=expr
-  LOOP s=block END LOOP SEMI                                       { s >>= (fun s -> pv (For (iof, rv=Some (), l, r, s))) }
+  LOOP ps=block END LOOP SEMI                                      { let>> s = ps in For (iof, rv=Some (), l, r, s) }
 						     
-| WHILE e=expr LOOP s=block END LOOP SEMI                          { s >>= (fun s -> pv (While (e, s))) }
+| WHILE e=expr LOOP ps=block END LOOP SEMI                         { let>> s = ps in While (e, s) }
 
-| LOOP s=block END LOOP SEMI                                       { s >>= (fun s -> pv (While (Id (mkloc $loc i_exit), s))) }
+| LOOP ps=block END LOOP SEMI                                      { let>> s = ps in While (Id (mkloc $loc i_exit), s) }
 
 | bl=block_label? DECLARE
-       d=p_declarations
-  BEGIN s=exn_block END el=loc_ident? SEMI
+       pd=p_declarations
+  BEGIN ps=exn_block END el=loc_ident? SEMI
   								   {
 								     expected ~may_be_empty:true
 									      (Common.option_default bl empty_ident)
 									      (Common.option_default el empty_ident)
                                                                      >>>
-								       s >>= (fun s ->
-                                                                       d >>= (fun d -> pv (Declare (d, s)))) }
+								       let>> s = ps
+								       and>= d = pd in
+								       Declare (d, s) }
 
 | EXIT WHEN e=expr SEMI                                            { pv (Exitwhen e) }
 
-| CASE e=expr IS l=p_nonempty_list(when_clause) END CASE SEMI      { l >>= (fun l -> pv (Case (e, l))) }
+| CASE e=expr IS pl=p_nonempty_list(when_clause) END CASE SEMI     { let>> l = pl in Case (e, l) }
 
 | RETURN e=expr SEMI                                               { pv (Return e) }
 | RETURN SEMI                                                      { pv (Return vun) }
 
-| BEGIN s=exn_block END SEMI                                       { s >>= (fun s -> pv (Declare ([], s))) }
+| BEGIN ps=exn_block END SEMI                                      { let>> s = ps in Declare ([], s) }
              
 elsif:
-| ELSIF e1=expr THEN s1=block s2=elsif                             { s1 >>= (fun s1 -> s2 >>= (fun s2 -> pv (If (e1, s1, s2)))) }
+| ELSIF e1=expr THEN ps1=block ps2=elsif                           { let>> s1 = ps1 and>= s2 = ps2 in If (e1, s1, s2) }
 | ELSE s2=block                                                    { s2 }
 | empty                                                            { pv vun }
 
@@ -485,7 +482,7 @@ when_clause:
 | WHEN e=expr ib=imply_block                                                  { ib None [ e ] }
 (* Others is an identifier *)
 		   
-imply_block:  IMPLY s=block              { fun lbl l -> (s >>= (fun s -> pv (Match (lbl, l, s)))) }
+imply_block:  IMPLY ps=block                                      { fun lbl l -> let>> s = ps in Match (lbl, l, s) }
 									  
 
 
