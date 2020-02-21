@@ -2,13 +2,13 @@
 
 (*
  * Accumulators may combine two kinds of behaviors:
- *    - fold-like acus, e.g. counting the number of occurrences of a given variable in the whole program.
- *            such acu are never reset, always propagated
+ *    - persistent acus, e.g. counting the total number of occurrences of a string constant in the whole program.
+ *                       such acu are never reset, always propagated.
  *
- *    - strictly hierarchival acu, e.g. an acu with the variables currently in scope
- *            such acu are never propagated upwards.
+ *    - scoped acu, e.g. an acu listing the variables currently in scope
+ *                  such acu are never propagated upwards.
  *
- * An acu may contain two parts having these behaviors. 
+ * An acu may combine a persistent part and a scoped part.
  *
  *)
 open Astlib
@@ -36,13 +36,16 @@ let (let=) a f = f a.rval
 let get_acu acu = return acu acu
 let (and=) x y = y { rval = (x.rval, ()) ; racu = x.racu }
 
+let (>>++) ret el =
+  let+ tail = ret and+ x = el in
+  x :: tail
 
-let (>>++) ret g = let+ x = g ret.racu in x :: ret.rval
-
+(* list_map with ret acu. *)
 let list f l acu =
   let init = return [] acu in
   (List.fold_left (fun r x -> r >>++ f x) init l) >>= List.rev
 
+(* option_map *)
 let option f x acu =
   match x with
   | None -> return None acu
@@ -295,15 +298,15 @@ class ['a] tree_mapper =
         let+ i = o#type_id id acu
         and+ a = list o#arg args
         and+ t = o#type_expr typeexp
-        and+ s = option o#subconstraint subco
-        in
+        and+ s = option o#subconstraint subco in
+        
         Typedef (i,a,t,s)
         
       | Subtype (id, li, subco) ->
         let+ i = o#type_id id acu
         and+ l = o#subtype li
-        and+ s = option o#subconstraint subco
-        in
+        and+ s = option o#subconstraint subco in
+        
         Subtype (i,l,s)
 
       | Procdef def -> let+ d = o#procdef def acu in Procdef d
@@ -311,8 +314,8 @@ class ['a] tree_mapper =
         
       | Funrename funr ->
         let+ a = o#procdecl funr.fun_alias acu 
-        and+ o = o#fun_id funr.fun_orig
-        in
+        and+ o = o#fun_id funr.fun_orig in
+        
         Funrename { fun_alias = a ;
                     fun_orig = o }
 
@@ -320,8 +323,8 @@ class ['a] tree_mapper =
         let+ v = o#var_id vardef.varname acu
         and+ t = o#type_expr vardef.vartype 
         and+ c = option o#subconstraint vardef.constrain
-        and+ i = option (o#expr S) vardef.vinit
-        in
+        and+ i = option (o#expr S) vardef.vinit in
+        
         Vardef { varname = v ;
                  const = vardef.const ;
                  vartype = t ;
@@ -338,8 +341,8 @@ class ['a] tree_mapper =
     method procdecl decl acu =
       let+ p = o#procname decl.procname acu
       and+ al = list o#arg decl.args 
-      and+ r = option o#rettype decl.rettype
-      in
+      and+ r = option o#rettype decl.rettype in
+      
       { procname = p ;
         args = al ;
         rettype = r }
@@ -347,8 +350,8 @@ class ['a] tree_mapper =
     method arg a acu =
       let+ n = o#argname a.argname acu
       and+ t = o#argtype a.argtype
-      and+ eo = option (o#expr S) a.argdefault
-      in
+      and+ eo = option (o#expr S) a.argdefault in
+      
       { argname = n ;
         argtype = t ;
         mode = a.mode ;
@@ -356,8 +359,8 @@ class ['a] tree_mapper =
 
     method pack_rename pr acu =
       let+ id = o#pack_id pr.pack_alias acu
-      and+ lid = o#long_id pr.pack_orig
-      in
+      and+ lid = o#long_id pr.pack_orig in
+      
       { pack_alias = id ;
         pack_orig = lid }
       
