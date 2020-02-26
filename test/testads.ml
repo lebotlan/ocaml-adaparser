@@ -6,7 +6,7 @@ let includedirs = ["Ada"]
 
 let run () =
   if Array.length Sys.argv <> 2 then
-      Lwt_io.printf "Usage: %s package-name\n" Sys.argv.(0)
+      Lwt_io.printf "Usage: %s package-name (not path)\n" Sys.argv.(0)
   else
     let packname = Sys.argv.(1) in
 

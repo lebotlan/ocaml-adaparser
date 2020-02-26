@@ -139,12 +139,17 @@ let qualified_li li acu =
   Printf.printf "Qualified_li li = %s, current acu = \n%s\n%!" (li2s li) (nmspace2s acu) ;
   li (*  ???? TODO or not TODO ?????? *)
 
+let block_exit inacu _outacu = inacu
+
+(* FIXME TODO *)
+let merge ~acu0 f =
+  let (acu2, g) = f ~acu1:acu0 in
+  g ~acu2
+
 (* Mapper that inserts fully qualified identifiers. *)
 let qualified_ids_map includedirs =
   object
-    inherit [nmspace] tree_mapper as super
-
-    method! upacu inacu _ = inacu
+    inherit [nmspace] tree_mapper { block_exit ; merge } as super
 
     (*
     (* Example, to be removed *)
@@ -168,7 +173,7 @@ let qualified_ids_map includedirs =
     method! pack_rename pr acu =
       Printf.printf "Visiting %s\n%!" (Astprint.packrenames ~margin:"  " pr) ;
       let ret = super#pack_rename pr acu in
-      return ret.rval { ret.racu with pack_renames = pr :: ret.racu.pack_renames } 
+      return ret.rval { acu with pack_renames = pr :: acu.pack_renames }
 
     method! var_id id acu =
       Printf.printf "Visiting vardef %s\n%!" (l2s id) ;

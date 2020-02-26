@@ -2,5 +2,5 @@
  (name astlib)
  (public_name astlib)
  
- (modules loc idents parse_errors ast astprint namespace)
+ (modules loc idents parse_errors ast astprint)
  (libraries compiler-libs.common shared_vals adavalues))

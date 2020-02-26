@@ -29,7 +29,7 @@ type path = string
 (* Directories in which ads files are looked for. *)
 type includedirs = path list
 
-(* Cached *)
+(* Cached. Find ads files. *)
 val find_file: includedirs -> string -> path option Lwt.t
 
 (* In order to avoid parsing twice the same files, a cache is used. 

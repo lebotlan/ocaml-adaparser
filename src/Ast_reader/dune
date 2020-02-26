@@ -2,5 +2,5 @@
  (name astreader)
  (public_name astreader)
  
- (modules astmap astread)
+ (modules astmap astread namespace)
  (libraries astlib))

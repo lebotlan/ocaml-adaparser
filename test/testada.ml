@@ -6,6 +6,7 @@ open Astread
 open Namespace
 open Idents
 open Adanorm
+open Parse_errors
     
 let test_proc =
   Adasig.{
@@ -28,9 +29,14 @@ let run () =
       Lwt_io.printf "\n%s\n" (Astprint.pfile2s p_file) ;%lwt
       Lwt_io.printf "-- OK, parsed.\n\n" ;%lwt
 
+      (* Print all errors *)
+      let errs = all_errors p_file in
+      Lwt_io.print "\n=== ERRORS ===\n\n" ;%lwt
+      Lwt_list.iter_s (fun err -> Lwt_io.printf " * %s\n" (lp2s err)) errs.errors ;%lwt
+      
       (* Normalise file *)
       let%lwt p_nfile = Namespacenorm.n_file includedirs p_file.pv in
-      Lwt_io.print "\n=== Normalized file ===\n\n" ;%lwt
+      Lwt_io.print "\n\n=== Normalized file ===\n\n" ;%lwt
       Lwt_io.printf "\n%s\n" (Astprint.pfile2s p_nfile) ;%lwt
 
       (* Find and print declarations *)

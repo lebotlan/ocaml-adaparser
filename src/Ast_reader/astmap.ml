@@ -1,49 +1,122 @@
 (*** Generic MAP & FOLD on the AST ***)
 
 (*
- * Accumulators may combine two kinds of behaviors:
- *    - persistent acus, e.g. counting the total number of occurrences of a string constant in the whole program.
- *                       such acu are never reset, always propagated.
+ * Accumulators may contain different kinds of data:
+ *    - persistent data, e.g. counting the total number of ADDitions in the whole program.
+ *                       such data is never reset, always propagated as such.
  *
- *    - scoped acu, e.g. an acu listing the variables currently in scope
- *                  such acu are never propagated upwards.
+ *    - scoped data, e.g. a list of the variables currently in scope
+ *                  such data is not propagated outside its current block.
+ * 
+ *    - control-flow sensitive data, e.g. a list of variable currently in scope that may have been (resp. were certainly) modified.
+ *                  such data depends on the control flow. It must be merged at junction points (IF, WHILE).
  *
- * An acu may combine a persistent part and a scoped part.
+ * The user is expected to redefine two methods in order to define how acu data is propagated:
+ *      #block_exit  : what happens when exiting the current block (a block is e.g. a then part or a else part in C or Java: one may define local variables there. In Ada blocks are more explicit, though.)
+ *      #merge       : what happens when two control flows merge.
  *
  *)
 open Astlib
 open Parse_errors
 open Ast
-    
+
 (* Type returned by all mapping methods: a value and a new acu. *)
 type ('v,'a) ret =
-  { rval : 'v ;
-    racu : 'a }
+  { (* rval: returned value *)
+    rval: 'v ;
+    acu: 'a }
 
-type ('v, 'a) mapper = 'v -> 'a -> ('v, 'a) ret
+(* A mapper receives the current subtree 'v, the current acu.
+ * It returns a mapped subtree and a new acu. *)
+type ('v,'a) mapper = 'v -> 'a -> ('v,'a) ret
 
+(* Type of block_exit and merge functions. 
+ * 'a is the acu type.
+ *
+ * The merge function is a bit elaborate.
+ *   - A naive merge function would be of type 'a -> 'a -> 'a  (left-acu -> right-acu -> final-acu)
+ *
+ *   - A better merge function would also receive the initial acu (acu before left and right branches), 
+ *     in order to ease the finding of differences between init/left/right: init:'a -> left:'a -> right:'a -> 'a
+ *
+ *   - Better: we allow the merge function to modify the acu which is passed to the left & right branches.
+ *     Hence, it can reset some part of the acu before passing it to one, then to the other branch.
+ *
+ *     e.g.  acu1 -> left-branch -> acu1'    then  acu1' is modified to acu2 (e.g. something is reset, some flag is set)
+ *           acu2 -> right-branch -> acu2'
+ *           then acu0, acu1', acu2' are merged into some final acu.
+ *
+ *   - Merge must have a polymorphic type, which guarantees that the left & right branches were actually invoked.
+ *
+ *  (Note that both left & right functions called by merge actually build a new acu _and_ a new value.
+ *   The new value is used internally to built the subtree, but is eventually hidden from the merge function.
+ *   Hence, the real control flow is a bit intricate, but hopefully nicely hidden from the user).
+ *
+ * *)
+type 'a user_fun =
+  { (* It receives the input acu (when entering the block) and output acu (once the block is finished). 
+     * It must return the final acu. *)
+    block_exit: 'a -> 'a -> 'a ;
+
+    (* The type 'c is only a witness that merge actually called both functions. 
+     * acu0 is the initial acu (before branches)
+     * acu1 is the acu passed to the left branch.
+     * acu2 is the acu passed to the right branch. 
+     *
+     * Expected invariants when merge is "called" with two functions f and g:
+     *      - symmetric: merge acu f g should be equivalent merge acu g f
+     *      - associative: merge acu (acu -> merge acu (f,g)) h  should be equivalent to merge acu f (acu -> merge acu (g,h))
+     *
+     * merge is expected to be somewhat associative (used to merge n branches in CASE statements, for instance). *)
+    merge: 'c . acu0:'a -> (acu1:'a -> 'a * (acu2:'a -> 'a * 'c)) -> ('a * 'c)
+  }
+
+(*
+   Examples: 
+       (* Accumulates *)
+       let block_exit _inacu outacu = outacu
+
+       (* Accumulates *)
+       let merge ~acu0 f =
+          let (acu2, g) = f ~acu1:acu0 in
+          g ~acu2
+
+       (* Reset (e.g. list of scope variables) *)
+       let block_exit inacu _outacu = inacu
+*)
+
+let accumulates =
+  let merge ~acu0 f =
+    let (acu2, g) = f ~acu1:acu0 in
+    g ~acu2
+
+  and block_exit _inacu outacu = outacu in
+
+  { block_exit ; merge }
+  
 (* Monadic helper functions *)
-let return v a = { rval = v ; racu = a }
+let return v acu = { rval = v ; acu }
 
-(* f returns a plain value, not a ret. *)
-let (let+) a f = { rval = f a.rval ; racu = a.racu }
-let (and+) ret g = let+ x = g ret.racu in (ret.rval,x)
-let (>>=) = (let+)
+let mapacu rv f = { rval = rv.rval ; acu = f rv.acu }
 
-(* These let= and= get_acu  are used in some ad-hoc cases to store a transitory acu and restore it later with o#up *)
-(* f returns a ret. The initial acu is lost (unless saved with get_acu). *)
-let (let=) a f = f a.rval
-let get_acu acu = return acu acu
-let (and=) x y = y { rval = (x.rval, ()) ; racu = x.racu }
+(* k builds an unboxed value. *)
+let (let+) r k = { r with rval = k r.rval }
+let (and+) r g = let+ x = g r.acu in (r.rval,x)
+
+(* k builds a boxed value & expects an acu. *)
+let (let=) r k = k r.rval r.acu
 
 let (>>++) ret el =
   let+ tail = ret and+ x = el in
   x :: tail
 
-(* list_map with ret acu. *)
+(* list_map with ret acu. 
+ * acu are simply chained
+ * (See also mergelist where acus are merged.) *)
 let list f l acu =
   let init = return [] acu in
-  (List.fold_left (fun r x -> r >>++ f x) init l) >>= List.rev
+  let+ l = (List.fold_left (fun r x -> r >>++ f x) init l) in
+  List.rev l
 
 (* option_map *)
 let option f x acu =
@@ -51,10 +124,11 @@ let option f x acu =
   | None -> return None acu
   | Some y -> let+ k = f y acu in Some k
 
+
 (*** Mapper classes ***)
 
 (* Note:
- *   nexpr are labeled expressions, like this: (label => expr, ... )
+ *   nexpr are labeled expressions, like this:  label => expr
  *   They are used for function application, building records, building arrays.
  *   When building arrays, a label may be a union of labels, ranges, constants, ...
  *   A label may belong to different namespaces (function arguments, record types, constants).
@@ -74,6 +148,7 @@ type label_namespace =
   | S
 
 let find_nexpr_kind = function
+  (* Empty nexpr, we don't care. *)
   | [] -> S
 
   | [Value _] -> S    
@@ -83,142 +158,180 @@ let find_nexpr_kind = function
   (* Multiple labels: it is not an argument *)
   | _ -> S
 
-class ['a] tree_mapper =
+
+(* block_exit receives the acu of the currently finished block and the initial value of the acu when entering this block. 
+   merge receives two acus corresponding to two merging control-flows.
+*)
+class ['a] tree_mapper user_fun =
+
+  (* Merges two branches. *)
+
+  (* Strange bug: if let++ is defined here, compilation fails with some error. 
+   * Instead, we define a nice-looking letpp function, and we have to define let++ each time we need it. *)
+  let letpp (f,g) k acu =
+
+    let merge_kont1 ~acu1 =
+      let rx = f acu1 in
+
+      let merge_kont2 ~acu2 =
+        let ry = g acu2 in
+        (ry.acu, (rx.rval, ry.rval))
+      in
+
+      (rx.acu, merge_kont2)
+    in
+    
+    let (final_acu, (x,y)) = user_fun.merge ~acu0:acu merge_kont1 in
+    return (k (x, y)) final_acu
+  in
+
+  (* Applies letpp iteratively on a list. *)
+  let mergelist mapf l acu =
+    let (let++) u v w = letpp u v w in
+    
+    let rec loop l acu0 = match l with
+      | [] -> return [] acu0
+      | [x] -> let+ el = mapf x acu0 in [el]
+      | x :: xs ->
+        acu0 |>
+        let++ (y, ys) = (mapf x, loop xs) in
+        y :: ys
+    in
+    
+    loop l acu
+  in
+
+  let block: 'v . 'a -> ('v,'a) ret -> ('v,'a) ret = fun inacu ret -> return ret.rval (user_fun.block_exit inacu ret.acu) in
+
+  let mkblock f = fun acu -> block acu (f acu) in
+
   object(o)
 
-    (* upacu : method to be overriden, depending on your acu.
-     * Merges input acu and subterm acu 
-     * It returns the acu to be used "for the next guy in the list" (e.g. in a declaration list) 
-     *
-     * fold-like acu    : outacu
-     * hierarchical acu : inacu
-     *
-     * Invariant: o#upacu should be idempotent (no effect when applied twice).
-     *            o#upacu acu acu = acu
-     *
-     * Beware: some methods return a o#up value, some other methods do not (we call them noup methods).
-     * when calling a up/noup method, one checks that it is the expected behaviour with respect to hierarchical acu (e.g. namespaces).
-    *)
-    method up : 'v . 'a -> ('v,'a) ret -> ('v,'a) ret = fun inacu ret -> return ret.rval (o#upacu inacu ret.racu)
-
-    method upacu inacu _outacu = inacu
+    (* Possible optimization: the tree is duplicated here, even if the mapping is the identity.
+     *    => one should check, at each node, if new childs == old childs, then return old subtree instead of a copy. *)
     
-    (* ln : label namespace *)
+    (* ln  means label namespace *)
 
-    (* up method *)
-    method expr ln e (acu:'a) = match e with
-      | Value v -> o#up acu (let+ v = o#adavalue v acu in Value v)
+    method expr ln e acu =
+      let (let++) u v w = letpp u v w in
+      
+      match e with
+      | Value v -> let+ v = o#adavalue v acu in Value v
 
-      | Id li -> o#up acu (let+ li = o#expr_id ln li acu in Id li)
-                                 
+      | Id li -> let+ li = o#expr_id ln li acu in Id li
+
       | Select (e, id) ->
-        o#up acu ( let+ ee = o#expr S e acu
-                   and+ iid = o#select_id id in
-                   Select (ee, iid))
-                            
+        let+ ee = o#expr S e acu
+        and+ iid = o#select_id id in
+        Select (ee, iid)
+
       | For (oi,rev,id,e1,e2) ->
-        o#up acu (let+ ee1 = o#expr S e1 acu                      
-                  (* The for identifier scope is e2 only. *)
-                  and+ iid = o#for_id id 
-                  and+ ee2 = o#expr S e2 in
-                  
-                  For (oi,rev,iid,ee1,ee2))
-        
-                                   
+        (* A FOR defines a block. *)
+        block acu
+          (let+ ee1 = o#expr S e1 acu                      
+           (* The for identifier scope is e2 only, hence it comes second. *)
+           and+ iid = o#for_id id 
+           and+ ee2 = o#expr S e2 in
+
+           For (oi,rev,iid,ee1,ee2))    
+
       | New (li, el) ->
-        o#up acu (let+ lid = o#new_id li acu 
-                  and+ l = list (o#expr S) el in
-                  New (lid, l))
-                          
-      | If (e1, e2, e3) ->
-        o#up acu (let+ ee1 = o#expr S e1 acu
-                  and+ ee2 = o#expr S e2 
-                  and+ ee3 = o#expr S e3 in
-                  If (ee1, ee2, ee3))
-        
+        let+ lid = o#new_id li acu 
+        and+ l = list (o#expr S) el in
+        New (lid, l)
+
+      | If (e1, e2, e3) ->        
+        let= ee1 = o#expr S e1 acu in
+
+        (* let++  merges the left and right branches 
+         * Also, e2 and e3 are considered as blocks. *)
+        let++ (ee2, ee3) = (mkblock (o#expr S e2),
+                            mkblock (o#expr S e3))
+        in
+        If (ee1, ee2, ee3)
+
       | While (e1, e2) ->
-        o#up acu (let+ ee1 = o#expr S e1 acu
-                  and+ ee2 = o#expr S e2 in
-                  While (ee1, ee2))
-          
+        let= ee1 = o#expr S e1 acu in
+
+        (* e2 is a block *)
+        let++ (ee2, ()) = (mkblock (o#expr S e2), return ()) in
+        While (ee1, ee2)
+
       | Assign (e1, e2) ->
-        o#up acu (let+ ee1 = o#expr S e1 acu 
-                  and+ ee2 = o#expr S e2 in
-                  Assign (ee1, ee2))
+        let+ ee1 = o#expr S e1 acu 
+        and+ ee2 = o#expr S e2 in
+        Assign (ee1, ee2)
 
       | Tick (e1, e2) ->
-        o#up acu (let+ ee1 = o#expr S e1 acu
-                  and+ ee2 = o#expr S e2 in
-                  Tick (ee1, ee2))
+        let+ ee1 = o#expr S e1 acu
+        and+ ee2 = o#expr S e2 in
+        Tick (ee1, ee2)
 
       | Is_in (e1, e2) ->
-        o#up acu (let+ ee1 = o#expr S e1 acu
-                  and+ ee2 = o#expr S e2 in
-                  Is_in (ee1, ee2))
+        let+ ee1 = o#expr S e1 acu
+        and+ ee2 = o#expr S e2 in
+        Is_in (ee1, ee2)
 
-      | Seq el -> o#up acu (let+ l = list (o#expr S) el acu in Seq l)
-                    
-      | Tuple nel -> o#up acu (let+ l = list o#nexpr nel acu in Tuple l)
+      | Seq el -> let+ l = list (o#expr S) el acu in Seq l
+
+      | Tuple nel -> let+ l = list o#nexpr nel acu in Tuple l
 
       | App (e, nel) ->
-        o#up acu (let+ ee = o#expr S e acu 
-                  and+ l = list o#nexpr nel in
-                  App (ee, l))
+        let+ ee = o#expr S e acu 
+        and+ l = list o#nexpr nel in
+        App (ee, l)
 
-      | Exitwhen e -> o#up acu (let+ ee = o#expr S e acu in Exitwhen ee)
-                        
-      | Return e -> o#up acu (let+ ee = o#expr S e acu in Return ee)
+      | Exitwhen e -> let+ ee = o#expr S e acu in Exitwhen ee
+
+      | Return e -> let+ ee = o#expr S e acu in Return ee
 
       | Declare (dl, e) ->
-        o#up acu (let+ ll = list o#declaration dl acu
-                  and+ ee = o#expr S e in
-                  Declare (ll, ee))
+        block acu
+          (let+ ll = list o#declaration dl acu
+           and+ ee = o#expr S e in
+           Declare (ll, ee))
 
       | Case (e, ws) ->
-        o#up acu (let+ ee = o#expr S e acu 
-                  and+ ww = list o#whenc ws in
-                  Case (ee, ww))
+        let+ ee = o#expr S e acu
+        and+ ww = mergelist o#whenc ws in
+        Case (ee, ww)
 
-      | Try (e, ws) -> 
-        o#up acu (let+ ee = o#expr S e acu 
-                  and+ ww = list o#whenc ws in
-                  Try (ee, ww))
-                         
+      | Try (e, ws) ->
+        let+ ee = o#expr S e acu 
+        and+ ww = mergelist o#whenc ws in
+        Try (ee, ww)
+
       | Unconstrained -> return Unconstrained acu
 
       | Interval (e1, e2) ->
-        o#up acu (let+ ee1 = o#expr S e1 acu 
-                  and+ ee2 = o#expr S e2 in
-                  Interval (ee1, ee2))
-          
-      | Range (e1, e2) ->
-        o#up acu (let+ ee1 = o#expr S e1 acu 
-                  and+ ee2 = o#expr S e2 in
-                  Range (ee1, ee2))
-                               
-      | TickRange (e, avo) -> o#up acu (let+ ee = o#expr S e acu 
-                                        and+ vvo = option o#adavalue avo in
-                                        TickRange (ee, vvo))
+        let+ ee1 = o#expr S e1 acu 
+        and+ ee2 = o#expr S e2 in
+        Interval (ee1, ee2)
 
-    (* noup *)
+      | Range (e1, e2) ->
+        let+ ee1 = o#expr S e1 acu 
+        and+ ee2 = o#expr S e2 in
+        Range (ee1, ee2)
+
+      | TickRange (e, avo) ->
+        let+ ee = o#expr S e acu 
+        and+ vvo = option o#adavalue avo in
+        TickRange (ee, vvo)
+
     method adavalue v acu = return v acu
 
-    (* noup *)
     method whenc (Match (ido, el, e)) acu =
       let+ ido2 = option o#when_id ido acu
       and+ l = list (o#expr S) el 
-      and+ ee = o#expr S e in
+      and+ ee = mkblock (o#expr S e) in
       Match (ido2, l, ee)
 
-    (* noup but the acu is reset anyway since there are only calls to o#expr, which is up *)
     method nexpr (lbl, e) acu =
       let k = find_nexpr_kind lbl in      
       let+ a = list (o#expr k) lbl acu
       and+ b = o#expr S e in
       (a,b)
     
-    (* noup *)
-
     (* Id expr *)
     method expr_id _ln li acu = return li acu
 
@@ -259,13 +372,11 @@ class ['a] tree_mapper =
        
     (*** Declarations ***)
 
-    (* pv_declaration = declaration list pv 
-     * noup *)
+    (* pv_declaration = declaration list pv *)
     method pv_declaration dlpv acu =
       let+ dl = list o#declaration dlpv.pv acu in
       { pv = dl ; errors = dlpv.errors }
     
-    (* noup (!) A declaration must be available by the subsequent elements. *)
     method declaration dl acu = match dl with      
       | Withclause wc -> let+ w = o#withclause wc acu in Withclause w
 
@@ -279,15 +390,16 @@ class ['a] tree_mapper =
 
       | Package pc ->
 
-        let= n = o#packname pc.package_name acu
-        and+ acu1 = get_acu in
+        let+ n = o#packname pc.package_name acu
+
+        (* Package body is a block. *)
+        and+ (d,c,io) = mkblock (fun acu ->
+            let+ d = list o#pv_declaration pc.package_declarations acu
+            and+ c = o#comments pc.package_comments 
+            and+ io = option (o#expr S) pc.package_init in
+            (d,c,io))
+        in
         
-        (* #up here, to prevent embedded declarations from going upwards. *)
-        let+ d = list o#pv_declaration pc.package_declarations acu
-        and+ c = o#comments pc.package_comments 
-        and+ io = option (o#expr S) pc.package_init
-        and= () = o#up acu1 in
-          
         Package { package_name = n ;
                   package_sig = pc.package_sig ;
                   package_declarations = d ;
@@ -337,7 +449,6 @@ class ['a] tree_mapper =
       | Index_constraint el -> let+ eel = list (o#expr S) el acu in Index_constraint eel
       | Range_constraint e -> let+ ee = o#expr S e acu in Range_constraint ee
 
-    (* noup *)
     method procdecl decl acu =
       let+ p = o#procname decl.procname acu
       and+ al = list o#arg decl.args 
@@ -364,33 +475,30 @@ class ['a] tree_mapper =
       { pack_alias = id ;
         pack_orig = lid }
       
-
-    (* noup? *)
     method procdef def acu =
       
-      let= d = o#procdecl def.decl acu
-      and+ acu1 = get_acu in
+      let+ d = o#procdecl def.decl acu
 
-      let+ dl = list o#pv_declaration def.declarations acu1
-      and+ b = o#expr S def.body
-      and+ c = o#comments def.proc_comments
-
-      (* Apply o#up on the return value. *)
-      and= () = o#up acu1 in
+      (* A function body is a block. *)
+      and+ (dl,b,c) = mkblock (fun acu ->
+          let+ dl = list o#pv_declaration def.declarations acu
+          and+ b = o#expr S def.body
+          and+ c = o#comments def.proc_comments
+          in
+          (dl,b,c))
+      in
       
       { decl = d ;
         declarations = dl ;
         body = b ;
         proc_comments = c }
 
-    (* noup *)
     method ltype (lblo, lid) acu =
       let+ lbl2 = option o#lbl_id lblo acu
-      and+ lid2 = o#long_id lid
-      in
+      and+ lid2 = o#long_id lid in
+
       (lbl2, lid2)
 
-    (* noup *)
     method withclause w acu = match w with
       | With li -> let+ lid = o#with_id li acu in With lid
       | Use li -> let+ lid = o#use_id li acu in With lid
@@ -398,4 +506,18 @@ class ['a] tree_mapper =
 
     method content dlpv acu = list o#pv_declaration dlpv acu
 
+    method file fpv acu =
+
+      let+ content = o#content fpv.pv.content acu
+      and+ file_comments = o#comments fpv.pv.file_comments in
+
+      let file =
+        { path = fpv.pv.path ;
+          content ;
+          file_comments ;
+          fpos = fpv.pv.fpos }
+      in
+    
+      { pv = file ; errors = fpv.errors }
+          
   end

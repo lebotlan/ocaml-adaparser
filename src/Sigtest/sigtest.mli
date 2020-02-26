@@ -1,4 +1,5 @@
 open Astlib
+open Astreader
 open Namespace
 
 (*** Check if an Adasig complies with a procdecl ***)
