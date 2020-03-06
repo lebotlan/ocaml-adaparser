@@ -85,6 +85,10 @@ let swopt = function
               
 let swlist l = l_map { pv = l ; errors = [] } (fun x -> x)
 
+let swpair1 pp =
+  let (a,b) = pp.pv in
+  ( { pv = a ; errors = pp.errors }, b )
+
 let (>>>) x y = x >>= (fun () -> y)
 (* let (let>>) x y = x >>> (y ()) *)
 

@@ -1,12 +1,12 @@
 open Astlib
+open Ast
 open Adaparser
 open Readfile
 open Astreader
 open Astread
-open Namespace
-open Idents
 open Adanorm
 open Parse_errors
+(* open Namespacenorm *)
     
 let test_proc =
   Adasig.{
@@ -35,24 +35,24 @@ let run () =
       Lwt_list.iter_s (fun err -> Lwt_io.printf " * %s\n" (lp2s err)) errs.errors ;%lwt
       
       (* Normalise file *)
-      let%lwt p_nfile = Namespacenorm.n_file ~includedirs p_file in
+      let%lwt (p_nfile, defs) = Namespacenorm.all_procdecl ~includedirs p_file in
       Lwt_io.print "\n\n=== Normalized file ===\n\n" ;%lwt
       Lwt_io.printf "\n%s\n" (Astprint.pfile2s p_nfile) ;%lwt
 
-      (* Find and print declarations *)
-      let decls = all_procdecl p_file in      
-      Lwt_list.iter_s (fun (n,d) -> Lwt_io.printf " * %s\n" (Astprint.procdecl2s (applynm_procdecl n d))) decls ;%lwt
+      (* Print definitions *)
+      Lwt_io.print "\n\n=== Definitions ===\n\n" ;%lwt
+      Lwt_list.iter_s (fun (_,d) -> Lwt_io.printf " * %s\n\n" (Astprint.procdecl2s d.decl)) defs ;%lwt
 
       (* Compliance tests with hard-coded signature *)
-      Lwt_io.printf "\n\nCompliance test.\n" ;%lwt
-
+      Lwt_io.printf "\n\nCompliance test (skipped).\n" ;%lwt
+(*
       Lwt_list.iter_s
         begin fun (nmsp, decl) ->
           let result = Sigtest.complies (nmsp, decl) test_proc in
           Lwt_io.printf " * %s  ==>  %s\n" (l2s decl.procname) (Sigtest.result2s result)
         end
         decls ;%lwt
-      
+  *)    
       Lwt.return_unit
     in
     Lwt.return_unit

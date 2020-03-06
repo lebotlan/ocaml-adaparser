@@ -2,6 +2,9 @@ open Astlib
 open Ast
 open Idents
 
+(*** USED by xmprepare plugin ***)
+
+
 (* Renaming environment *)
 type env_rename
 

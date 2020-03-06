@@ -74,4 +74,6 @@ open Loc
 val swloc: 'a pv loc -> 'a loc pv
 val swopt: 'a pv option -> 'a option pv   
 val swlist: 'a pv list -> 'a list pv
-    
+
+val swpair1: ('a * 'b) pv -> ('a pv * 'b)
+                             

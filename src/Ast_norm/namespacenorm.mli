@@ -28,6 +28,6 @@ type path = string
 val n_file: includedirs:path list -> file pv -> file pv Lwt.t
 
 
-
-(* => Return a list of functions with their associated namespaces? *)
+(* Like n_file, but also returns a list of procedure / functions  with their associated namespace. *)
+val all_procdecl: includedirs:path list -> file pv -> (file pv * (nmspace * procdef) list) Lwt.t
 

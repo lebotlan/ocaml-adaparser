@@ -101,14 +101,13 @@ let get_num num =
 
 %left ACCESS
 %left TICK
-%left DOT
 
 %left AMPAND
 
 %left OR XOR
 %left AND
       
-%nonassoc LPAREN IN THEN RANGE ELSE DOTDOT
+%nonassoc IN THEN RANGE ELSE DOTDOT
       
 %nonassoc LEQ GEQ LT GT EQUAL NOTEQ
 

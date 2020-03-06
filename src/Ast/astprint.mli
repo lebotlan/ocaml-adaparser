@@ -7,6 +7,8 @@ val funrenames: margin:string -> fun_rename -> string
 
 val declaration2b: margin:string -> declaration -> string
 
+val procdef2b: margin: string -> procdef -> string
+
 val arg2s: arg -> string
 
 val procdecl2s: procdecl -> string

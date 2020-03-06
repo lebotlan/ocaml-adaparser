@@ -15,7 +15,7 @@ open Ast_env
 open Use_env
 
 (* TODO : 
-*    - option pour inclure dans les sous-programmes les définitions globales qui y sont utilisées.
+ *    - option pour inclure dans les sous-programmes les définitions globales qui y sont utilisées.
  *   -  => constantes, autres fonctions
  *   -  => attention, si on définit un type il peut apparaître.
  *   -  => récupérer une fonction = (defs préliminaires + la fonction)
@@ -48,6 +48,9 @@ type nmspace =
     (* Opened packages (use) *)
     use: use_env ;
 
+    (* All procdefs. *)
+    defs: (nmspace * procdef) list ;
+    
     (* Keep track of identifiers that were expanded:
      *  replace_key => replaced
      *
@@ -56,7 +59,6 @@ type nmspace =
      * the full acu as scoped (the assoc field remains unchanged, but its content is updated. 
      *)
     assoc: (replace_key, replaced) Hashtbl.t }
-
 
 let replacekey2s = function
   | K_select l -> "S[" ^ l2s l ^ "]"
@@ -121,11 +123,23 @@ let expand_longid ~warn li acu =
         let full_li = li2 @ is in
         return full_li (insert_assoc acu (K_longid full_li) (R_longid (li, full_li)))
     end
-          
+    
+let userfun =
+  let merge ~acu0 f =
+    let (acu1, g) = f ~acu1:acu0 in
+    let (acu2, c) = g ~acu2:{ acu0 with defs = [] } in
+
+    let acu = { acu0 with defs = List.rev_append acu2.defs acu1.defs } in    
+    (acu, c)
+
+  and block_exit inacu outacu = { inacu with defs = outacu.defs } in
+
+  { block_exit ; merge }
+
 (* Mapper that inserts fully qualified identifiers in the ast. *)
 let qualified_ids_map =
   object(self)
-    inherit [nmspace] tree_mapper scoped as super
+    inherit [nmspace] tree_mapper userfun as super
 
     (* With => the first package name is now bound in the environment. *)
     method! with_id li acu =
@@ -207,7 +221,8 @@ let qualified_ids_map =
 
     method! procdef def acu =
       let- (pd, acu) = super#procdef def acu in
-      { acu with env = insert_env acu.env pd.decl.procname (Decl (Procdef pd)) }
+      { acu with env = insert_env acu.env pd.decl.procname (Decl (Procdef pd)) ;
+                 defs = (acu, pd) :: acu.defs }
 
   end
 
@@ -217,15 +232,20 @@ let init_nmspace includedirs list =
   
   Lwt.return
     (let>= use = puse in
+
      pv { env = builtin_env ;
+          defs = [] ;
           use ;
-          assoc = Hashtbl.create 1000 })
+          assoc = Hashtbl.create 1000 } )
 
-let n_file ~includedirs file =
-
+let all_procdecl ~includedirs file =
   let%lwt pinit_acu = init_nmspace includedirs [file.pv] in
   Lwt.return
-    (let>= acu = pinit_acu in
-     let norm_file = qualified_ids_map#file file acu in
-
-     pv norm_file.rval.pv)
+    (swpair1
+       (let>= acu = pinit_acu in
+        let norm_file = qualified_ids_map#file file acu in        
+        pv (norm_file.rval.pv, norm_file.acu.defs )))
+  
+let n_file ~includedirs file =
+  let%lwt (f, _) = all_procdecl ~includedirs file in
+  Lwt.return f
