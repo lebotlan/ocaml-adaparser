@@ -93,7 +93,17 @@ let accumulates =
   and block_exit _inacu outacu = outacu in
 
   { block_exit ; merge }
-  
+
+let scoped =
+  let merge ~acu0 f =
+    let (_, g) = f ~acu1:acu0 in
+    let (_, c) = g ~acu2:acu0 in
+    (acu0, c)
+
+  and block_exit inacu _outacu = inacu in
+
+  { block_exit ; merge }
+
 (* Monadic helper functions *)
 let return v acu = { rval = v ; acu }
 
@@ -105,6 +115,9 @@ let (and+) r g = let+ x = g r.acu in (r.rval,x)
 
 (* k builds a boxed value & expects an acu. *)
 let (let=) r k = k r.rval r.acu
+
+(* k returns only a new acu. We keep the value returned in the let. *)
+let (let-) r k =  { r with acu = k (r.rval, r.acu) }
 
 let (>>++) ret el =
   let+ tail = ret and+ x = el in
@@ -126,6 +139,35 @@ let option f x acu =
 
 
 (*** Mapper classes ***)
+
+(* Kind of arguments *)
+type arg_kind =
+  (* Argument of a procedure / function. 
+   * The boolean indicates if this is a binder.
+   *    A procdecl does not bind its arguments.
+   *    A procdef binds the arguments in its body.
+   *   
+   *    A procdef first invokes #arg with Proc_arg false (for the declaration),    (A)
+   *    then it invokes #arg with Proc_arg true for the body <- with the mapped arguments returned by (A)
+   *         Proc_arg true => it is the second time these arguments are seen, and these may have already been mapped.
+   *                          they are not supposed to be mapped again
+   *  
+   *)
+  | Proc_arg of bool
+
+  (* Argument in a typedef (not a binder) *)
+  | Typedef_arg
+
+(* #procdecl may be invoked in three different contexts *)
+type procdecl_kind =
+  (* Only a declaration, in a package spec. *)
+  | Pdk_only_decl
+
+  (* A function renaming (procdecl is invoked) *)
+  | Pdk_funrename
+
+  (* In a procdef *)
+  | Pdk_procdef
 
 (* Note:
  *   nexpr are labeled expressions, like this:  label => expr
@@ -262,10 +304,10 @@ class ['a] tree_mapper user_fun =
         and+ ee2 = o#expr S e2 in
         Assign (ee1, ee2)
 
-      | Tick (e1, e2) ->
-        let+ ee1 = o#expr S e1 acu
-        and+ ee2 = o#expr S e2 in
-        Tick (ee1, ee2)
+      | Tick (e, l) ->
+        let+ ee = o#expr S e acu
+        and+ ll = o#attribute l in
+        Tick (ee, ll)
 
       | Is_in (e1, e2) ->
         let+ ee1 = o#expr S e1 acu
@@ -318,14 +360,21 @@ class ['a] tree_mapper user_fun =
         and+ vvo = option o#adavalue avo in
         TickRange (ee, vvo)
 
+    (* At parse-time, only ground values can appear: numbers, arrays, tuples (records),
+     * but no builtin or function. *)
     method adavalue v acu = return v acu
 
-    method whenc (Match (ido, el, e)) acu =
-      let+ ido2 = option o#when_id ido acu
-      and+ l = list (o#expr S) el 
-      and+ ee = mkblock (o#expr S e) in
-      Match (ido2, l, ee)
+    method whenc (Match (ido, el, e)) acu =      
+      let+ l = list (o#expr S) el acu
 
+      (* ido binds a new name. There is a block here. *)
+      and+ (ido2, ee) = mkblock (fun acu ->
+          let+ ido2 = option o#when_id ido acu
+          and+ ee = o#expr S e in
+          (ido2, ee))
+      in
+      Match (ido2, l, ee)
+        
     method nexpr (lbl, e) acu =
       let k = find_nexpr_kind lbl in      
       let+ a = list (o#expr k) lbl acu
@@ -339,35 +388,38 @@ class ['a] tree_mapper user_fun =
 
     method comments c acu = return c acu
     
-    (* pack rename, pack new, ltype *)
+    (* pack rename, pack new, ltype, ... *)
     method long_id li acu = return li acu
 
-    (* Function's return type *)
-    method rettype = o#long_id
-    method argtype = o#long_id
+    method typename = o#long_id
 
     (* Subtype t is xxx (this is xxx): *)
     method subtype = o#long_id
     method fun_id = o#long_id    
     method new_id = o#long_id
-    method with_id = o#long_id
     method use_id = o#long_id
     method usetype_id = o#long_id
-      
+
+    (* with is not supposed to be influenced by the context. *)
+    method with_id li acu = return li acu
+    
     method select_id id acu = return id acu
 
+    method attribute id acu = return id acu
+
     (* Binders *)
-    method argname id acu = return id acu
+    method argname _kind id acu = return id acu
     method var_id id acu = return id acu
     method for_id id acu = return id acu
     method when_id id acu = return id acu
-
+    method enumerate_value id acu = return id acu
+    
     (* Package rename *)
     method pack_id id acu = return id acu
         
     method pnew_id id acu = return id acu
     method packname id acu = return id acu
-    method procname id acu = return id acu
+    method procname _kind id acu = return id acu
     method type_id id acu = return id acu    
        
     (*** Declarations ***)
@@ -376,17 +428,20 @@ class ['a] tree_mapper user_fun =
     method pv_declaration dlpv acu =
       let+ dl = list o#declaration dlpv.pv acu in
       { pv = dl ; errors = dlpv.errors }
+
+    method packnew (id, li, ltypes) acu =
+      let+ id2 = o#pnew_id id acu
+      and+ li2 = o#long_id li
+      and+ ltypes2 = list o#ltype ltypes in
+      (id2, li2, ltypes2)
     
     method declaration dl acu = match dl with      
       | Withclause wc -> let+ w = o#withclause wc acu in Withclause w
 
       | Rename pr -> let+ r = o#pack_rename pr acu in Rename r
+      | Funrename fr -> let+ r = o#fun_rename fr acu in Funrename r
     
-      | Packnew (id, li, ltypes) ->
-        let+ id2 = o#pnew_id id acu
-        and+ li2 = o#long_id li
-        and+ ltypes2 = list o#ltype ltypes in
-        Packnew (id2, li2, ltypes2)
+      | Packnew pnew -> let+ p = o#packnew pnew acu in Packnew p
 
       | Package pc ->
 
@@ -406,61 +461,74 @@ class ['a] tree_mapper user_fun =
                   package_comments = c ;
                   package_init = io }
     
-      | Typedef (id, args, typeexp, subco) ->
-        let+ i = o#type_id id acu
-        and+ a = list o#arg args
-        and+ t = o#type_expr typeexp
-        and+ s = option o#subconstraint subco in
-        
-        Typedef (i,a,t,s)
-        
-      | Subtype (id, li, subco) ->
-        let+ i = o#type_id id acu
-        and+ l = o#subtype li
-        and+ s = option o#subconstraint subco in
-        
-        Subtype (i,l,s)
-
+      | Typedef typedef -> let+ td = o#typedef typedef acu in Typedef td        
+      | Subtype subtypedef -> let+ std = o#subtypedef subtypedef acu in Subtype std
       | Procdef def -> let+ d = o#procdef def acu in Procdef d
-      | Procdecl decl -> let+ d = o#procdecl decl acu in Procdecl d
+      | Procdecl decl -> let+ d = o#procdecl Pdk_only_decl decl acu in Procdecl d
         
-      | Funrename funr ->
-        let+ a = o#procdecl funr.fun_alias acu 
-        and+ o = o#fun_id funr.fun_orig in
-        
-        Funrename { fun_alias = a ;
-                    fun_orig = o }
+      | Vardef vardef -> let+ vd = o#vardef vardef acu in Vardef vd
 
-      | Vardef vardef ->
-        let+ v = o#var_id vardef.varname acu
-        and+ t = o#type_expr vardef.vartype 
-        and+ c = option o#subconstraint vardef.constrain
-        and+ i = option (o#expr S) vardef.vinit in
-        
-        Vardef { varname = v ;
-                 const = vardef.const ;
-                 vartype = t ;
-                 constrain = c ;
-                 vinit = i }
+    method typedef td acu =
+      let+ i = o#type_id td.t_name acu
+      and+ a = list (o#arg Typedef_arg) td.t_args
+      and+ t = o#type_expr td.t_body
+      and+ s = option o#subconstraint td.t_constrain in
+      
+      { t_name = i ;
+        t_args = a ;
+        t_body = t ;
+        t_constrain = s }
 
-    method type_expr te acu = return te acu
+    method subtypedef std acu =
+      let+ i = o#type_id std.st_name acu
+      and+ l = o#subtype std.st_typ
+      and+ s = option o#subconstraint std.st_constrain in
+        
+      { st_name = i ;
+        st_typ = l ;
+        st_constrain = s }
+      
+    method vardef v a = o#core_vardef v a
+    method record_field f a = o#core_vardef f a
+
+    (* Used by vardef and record_field *)
+    method core_vardef vardef acu =
+      let+ v = o#var_id vardef.varname acu
+      and+ t = o#type_expr vardef.vartype 
+      and+ c = option o#subconstraint vardef.constrain
+      and+ i = option (o#expr S) vardef.vinit in
+      
+      { varname = v ;
+        const = vardef.const ;
+        vartype = t ;
+        constrain = c ;
+        vinit = i }
+    
+    (* Invoked for variable definition, type definitions, ... *)
+    method type_expr te acu = match te with
+      | Abstract -> return te acu
+      | Typename li -> let+ n = o#typename li acu in Typename n
+      | Enumerate en -> let+ en = list o#enumerate_value en acu in Enumerate en
+      | Record vdl -> let+ vdl = list o#record_field vdl acu in Record vdl
+      | Array (rgs, cell) -> let+ rgs = list (o#expr S) rgs acu and+ n = o#typename cell in Array (rgs, n)
+      | Delta (v1, v2) -> let+ v1 = o#adavalue v1 acu and+ v2 = o#adavalue v2 in Delta (v1, v2)
 
     method subconstraint sub acu = match sub with
       | Index_constraint el -> let+ eel = list (o#expr S) el acu in Index_constraint eel
-      | Range_constraint e -> let+ ee = o#expr S e acu in Range_constraint ee
+      | Range_constraint e -> let+ ee = o#expr S e acu in Range_constraint ee    
 
-    method procdecl decl acu =
-      let+ p = o#procname decl.procname acu
-      and+ al = list o#arg decl.args 
-      and+ r = option o#rettype decl.rettype in
+    method procdecl kind decl acu =
+      let+ p = o#procname kind decl.procname acu
+      and+ al = list (o#arg (Proc_arg false)) decl.args 
+      and+ r = option o#typename decl.rettype in
       
       { procname = p ;
         args = al ;
         rettype = r }
 
-    method arg a acu =
-      let+ n = o#argname a.argname acu
-      and+ t = o#argtype a.argtype
+    method arg kind a acu =
+      let+ n = o#argname kind a.argname acu
+      and+ t = o#typename a.argtype
       and+ eo = option (o#expr S) a.argdefault in
       
       { argname = n ;
@@ -474,25 +542,43 @@ class ['a] tree_mapper user_fun =
       
       { pack_alias = id ;
         pack_orig = lid }
+
+    method fun_rename fr acu =
+      let+ a = o#procdecl Pdk_funrename fr.fun_alias acu 
+      and+ o = o#fun_id fr.fun_orig in
       
+      { fun_alias = a ;
+        fun_orig = o }
+
+    
     method procdef def acu =
       
-      let+ d = o#procdecl def.decl acu
+      let= d = o#procdecl Pdk_procdef def.decl acu in
 
-      (* A function body is a block. *)
-      and+ (dl,b,c) = mkblock (fun acu ->
-          let+ dl = list o#pv_declaration def.declarations acu
-          and+ b = o#expr S def.body
-          and+ c = o#comments def.proc_comments
-          in
-          (dl,b,c))
-      in
+      begin fun acu ->
+        (* A function body is a block. *)
+        let+ (dl,b,c) = mkblock (fun acu ->
+            
+            (* Consider now the arguments as binders.
+             * They should not be mapped again by #arg. *)
+            let+ al = list (o#arg (Proc_arg true)) d.args acu
+                
+            and+ dl = list o#pv_declaration def.declarations
+            and+ b = o#expr S def.body
+            and+ c = o#comments def.proc_comments
+            in
+            
+            assert (al = d.args) ; (* Arguments must not be mapped again. They should have been mapped in procdecl *)
+            
+            (dl,b,c)) acu
+        in
       
-      { decl = d ;
-        declarations = dl ;
-        body = b ;
-        proc_comments = c }
-
+        { decl = d ;
+          declarations = dl ;
+          body = b ;
+          proc_comments = c }
+      end
+        
     method ltype (lblo, lid) acu =
       let+ lbl2 = option o#lbl_id lblo acu
       and+ lid2 = o#long_id lid in
@@ -501,8 +587,8 @@ class ['a] tree_mapper user_fun =
 
     method withclause w acu = match w with
       | With li -> let+ lid = o#with_id li acu in With lid
-      | Use li -> let+ lid = o#use_id li acu in With lid
-      | Usetype li -> let+ lid = o#usetype_id li acu in With lid
+      | Use li -> let+ lid = o#use_id li acu in Use lid
+      | Usetype li -> let+ lid = o#usetype_id li acu in Usetype lid
 
     method content dlpv acu = list o#pv_declaration dlpv acu
 

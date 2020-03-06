@@ -62,13 +62,13 @@ and declaration =
   | Rename of pack_rename
 
   (* Package instance (package is new) *)
-  | Packnew of loc_ident * long_ident * (ltype list)
+  | Packnew of packnew
 
   | Package of package_content
 
   (* Type definition *)
-  | Typedef of loc_ident * arg list * type_expr * (subt_constraint option)
-  | Subtype of loc_ident * long_ident * (subt_constraint option)
+  | Typedef of typedef
+  | Subtype of subtypedef
   
   (* Definition of a function or procedure. *)
   | Procdef of procdef
@@ -82,6 +82,8 @@ and declaration =
   (* Variable definition *)
   | Vardef of vardef
 
+and packnew = loc_ident * long_ident * (ltype list)
+
 and pv_declaration = declaration list pv
 
 (* Variable definition *)
@@ -91,7 +93,18 @@ and vardef =
     vartype: type_expr ;
     constrain: subt_constraint option ;
     vinit: expr option }
-  
+
+and typedef =
+  { t_name: loc_ident ;
+    t_args: arg list ;
+    t_body: type_expr ;
+    t_constrain: subt_constraint option }
+
+and subtypedef =
+  { st_name: loc_ident ;
+    st_typ: long_ident ;
+    st_constrain: subt_constraint option }
+
 (* access types are simply represented by "access".type *)
 
 (* Type definition *)
@@ -144,8 +157,8 @@ and expr =
   (* e.name *)
   | Select of expr * loc_ident
 
-  (* e1'e2 *)
-  | Tick of expr * expr
+  (* e1'attribute *)
+  | Tick of expr * loc_ident
 
   | If of expr * expr * expr
   | While of expr * expr

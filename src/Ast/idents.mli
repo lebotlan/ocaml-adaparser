@@ -37,3 +37,6 @@ val i_exit: s
 
 val i_true: s
   
+(* Maps a long_ident package name to a file name. *)
+val pack2file: long_ident -> string
+  

@@ -68,7 +68,7 @@ let rec last = function
 (* String to long_ident *)
 let s2li s =
   let l = Text.split ~sep:"." s in
-  List.map (fun s -> Loc.mkdummy (norm s)) l
+  List.map (fun s -> Loc.mkdummy "Sigtest.s2li" (norm s)) l
 
 (*
  * Returns None if w1 is too different from w2

@@ -26,7 +26,7 @@ let syntax_error pos err = raise (Syntax_error { pos ; v = err } )
 
 type lp_error = parser_error Loc.loc
 
-let lp2s lpe = Printf.sprintf "%s: %s" (Loc.loc2s lpe) (err2s lpe.v)
+let lp2s lpe = Printf.sprintf "%s: %s" (Loc.pos2s lpe.pos) (err2s lpe.v)
 
 let () = Printexc.register_printer
     (function
@@ -56,7 +56,7 @@ let bind x f =
 
 let (>>=) = bind
 let (let>=) = bind
-let (let>>) px f = px >>= (fun x -> pv (f x))
+let (let>>) px f = let>= x = px in pv (f x)
 
 let (and>=) a b =
   { pv = (a.pv, b.pv) ;

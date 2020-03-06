@@ -213,13 +213,13 @@ declaration:
 | pc=package_body       { map pc (fun pc -> [ Package pc ]) }
 
 (* Type defs *)                        
-| TYPE l=loc_ident SEMI                                         { pv [ Typedef (l, [], Abstract, None) ] }
-| TYPE l=loc_ident args=argsdef alt(IS,ISNEW)
-              pt=type_expr withprivate? r=subt_constraint? SEMI  { let>> t = pt in [ Typedef (l, args, t, r) ] }
+| TYPE t_name=loc_ident SEMI                                   { pv [ Typedef { t_name ; t_args = [] ; t_body = Abstract ; t_constrain = None } ] }
+| TYPE t_name=loc_ident t_args=argsdef alt(IS,ISNEW)
+              pt=type_expr withprivate? r=subt_constraint? SEMI  { let>> t_body = pt in [ Typedef { t_name ; t_args ; t_body ; t_constrain = r } ] }
 
-| TYPE l=loc_ident args=argsdef IS RANGE e=expr SEMI            { pv [Typedef (l, args, Typename empty_long_ident, Some (Range_constraint e)) ] }
-                                                        
-| SUBTYPE l=loc_ident IS p=dotted_name r=subt_constraint? SEMI  { pv [ Subtype (l, p, r) ]}
+| TYPE t_name=loc_ident t_args=argsdef IS RANGE e=expr SEMI    { pv [Typedef { t_name ; t_args ; t_body = Typename empty_long_ident ; t_constrain = Some (Range_constraint e) } ] }
+
+| SUBTYPE st_name=loc_ident IS p=dotted_name r=subt_constraint? SEMI  { pv [ Subtype { st_name ; st_typ = p ; st_constrain = r } ]}
 				                                                
 (* Function renaming *)
 | p=procdecl RENAMES i=dotted_name SEMI { let>> decl = p in [ Funrename { fun_alias = decl ;
@@ -495,7 +495,7 @@ dot_expr:
 | e=dot_expr DOT l=loc_ident                { Select (e, l) }
 | e=dot_expr a=parlist(nexpr, COMMA)        { App (e, a) }
 | l=parlist(nexpr, COMMA)                   { Tuple l }
-| e1=dot_expr TICK e2=dot_expr              { Tick (e1,e2) }
+| e1=dot_expr TICK l=loc_ident              { Tick (e1,l) }
                         
 expr:
 | e=dot_expr                                { e }

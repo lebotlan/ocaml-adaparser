@@ -41,28 +41,29 @@ let clause2b ~margin = function
   | Use li  -> margin ^ "use "  ^ li2s li ^ " ;\n"
   | Usetype li -> margin ^ "use type "  ^ li2s li ^ " ;\n"
 
-let packrenames ~margin pr = Printf.sprintf "%spackage %s renames %s ;\n" margin (l2s pr.pack_alias) (li2s pr.pack_orig)
-
 let rec declaration2b ~margin = function
   | Withclause c -> clause2b ~margin c
 
   | Rename pr -> packrenames ~margin pr
-
+  | Funrename fr -> funrenames ~margin fr
+                      
   | Packnew (pname, pfunc, args) -> Printf.sprintf "%spackage %s is new %s(%s) ;\n"
                                       margin (l2s pname) (li2s pfunc) (Common.sep ltype2s ", " args)
 
-  | Typedef (id, args, te, ocons) ->
-    let sid = l2s id in
-    Printf.sprintf "\n%stype %s%s is %s%s ;\n\n" margin sid (args2s args) (type2s ~margin te) (ocons2s ocons)
+  | Typedef td ->
+    Printf.sprintf "\n%stype %s%s is %s%s ;\n\n" margin (l2s td.t_name) (args2s td.t_args) (type2s ~margin td.t_body) (ocons2s td.t_constrain)
                           
-  | Subtype (id, lid, ocons) ->
-    Printf.sprintf "\n%ssubtype %s is %s%s ;\n\n" margin (l2s id) (li2s lid) (ocons2s ocons)
+  | Subtype std ->
+    Printf.sprintf "\n%ssubtype %s is %s%s ;\n\n" margin (l2s std.st_name) (li2s std.st_typ) (ocons2s std.st_constrain)
 
-  | Funrename fr -> Printf.sprintf "\n%s%s renames %s ;\n\n" margin (procdecl2s ~margin fr.fun_alias) (li2s fr.fun_orig)
   | Procdecl decl -> "\n" ^ margin ^ procdecl2s ~margin decl ^ " ;\n\n"
   | Procdef def -> "\n" ^ procdef2b ~margin def ^ "\n"      
   | Vardef vdef -> vardef2b ~margin vdef
   | Package pc -> packcontent2b ~margin pc
+
+and packrenames ~margin pr = Printf.sprintf "%spackage %s renames %s ;\n" margin (l2s pr.pack_alias) (li2s pr.pack_orig)
+
+and funrenames ~margin fr = Printf.sprintf "\n%s%s renames %s ;\n\n" margin (procdecl2s ~margin fr.fun_alias) (li2s fr.fun_orig)
 
 and pv_declaration2b title1 title2 ~margin p = pv2s (title1 ^ " " ^ title2) (blist2b declaration2b) ~margin p
 
@@ -173,7 +174,7 @@ and expr2s ~margin = function
     pre ^ "(" ^ Common.sep (nexpr2s ~margin:(margin ^ space 1 pre)) ", " nels ^ ")"
 
   | Select (e, l) -> expr2s ~margin e ^ "." ^ (l2s l)
-  | Tick (e1, e2) -> expr2s ~margin e1 ^ "'" ^ expr2s ~margin e2
+  | Tick (e, l)   -> expr2s ~margin e ^ "'" ^ (l2s l)
 
   | If (e1, e2, e3) ->
     let margin' = margin ^ indent in

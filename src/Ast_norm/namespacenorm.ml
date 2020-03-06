@@ -1,228 +1,231 @@
+
+(* Namespacenorm: normalise namespace.
+ * Expand all expandable names (aliases, implicit packages).
+ * Characterize identifiers (arguments, variables, for-loop identifiers, ...)
+ *)
+
 open Astlib
 open Ast
 open Idents
 open Parse_errors
 open Loc
-open Adaparser
 open Astreader
 open Astmap
-    
+open Ast_env
+open Use_env
+
+(* TODO : 
+*    - option pour inclure dans les sous-programmes les définitions globales qui y sont utilisées.
+ *   -  => constantes, autres fonctions
+ *   -  => attention, si on définit un type il peut apparaître.
+ *   -  => récupérer une fonction = (defs préliminaires + la fonction)
+*)
+
 type path = string
 
-type includedirs = path list
 
-type ads_defs =
-  { pack_name: long_ident ;
-    defs: loc_ident list }
+(* When expanding names, we replace a loc_ident or a long_ident
+ * by a Select or a long_ident.
+ * We keep track of what has been replaced. *)
+type replaced =
+  (* R_select (original, replacement) *)
+  | R_select of loc_ident * expr
+
+  (* R_longid (original, replacement) *)
+  | R_longid of long_ident * long_ident
+
+(* The key to record replacements is:
+ *   - the full replaced longid (longid case)
+ *   - or the first Id in a Select. *)
+type replace_key =
+  | K_select of loc_ident
+  | K_longid of long_ident
 
 type nmspace =
-  { pack_renames: pack_rename list ;
-    use: ads_defs list ;
-    local_defs: loc_ident list }
+  { (* Environment : variables, arguments, ...*)
+    env: env ;
 
-let (//) = Filename.concat
+    (* Opened packages (use) *)
+    use: use_env ;
 
-let not_found pack_name =
-  { pv = { pack_name ;
-           defs = [] } ;
-    errors = [ { pos = get_li_pos pack_name ;
-                 v = Cannot_find pack_name } ]
-  }
+    (* Keep track of identifiers that were expanded:
+     *  replace_key => replaced
+     *
+     * This field contains persistent data,
+     * however, since it is mutable, we may still consider 
+     * the full acu as scoped (the assoc field remains unchanged, but its content is updated. 
+     *)
+    assoc: (replace_key, replaced) Hashtbl.t }
 
-let init_nmspace =
-  { pack_renames = [] ;
-    use = [] ;
-    local_defs = [] }
 
-let ads_defs2s ads = Printf.sprintf "package %s exports %s" (li2s ads.pack_name) (Common.sep l2s ", " ads.defs)
+let replacekey2s = function
+  | K_select l -> "S[" ^ l2s l ^ "]"
+  | K_longid li -> "L[" ^ li2s li ^ "]"
+
+let replaced2s = function
+  | R_select (l, e) -> l2s l ^ " -> " ^ Astprint.expr2s ~margin:"" e
+  | R_longid (li1, li2) -> li2s li1 ^ " => " ^ li2s li2
+
+let get_key_loc = function
+  | K_select l -> l.pos
+  | K_longid l -> get_li_pos l
 
 let nmspace2s nms =
-  Printf.sprintf "---- Namespace ----\n%s\n\n%s\n\n  Local defs : %s\n\n"
-    (Common.sep (Astprint.packrenames ~margin:"") "\n" nms.pack_renames)
-    (Common.sep ads_defs2s "\n" nms.use)
-    (Common.sep l2s ", " nms.local_defs)
+  Printf.sprintf "\n----- Namespace -----\n%s\n\n%s\n\nAssoc :\n%s\n--------------------------\n\n"
+    (env2s nms.env) (use_env2s nms.use)
+    (Hashtbl.fold (fun key rep acu -> acu ^ "    " ^ replacekey2s key ^ " : " ^ replaced2s rep ^ "\n") nms.assoc "")
 
-let insert_ads nms ads = { nms with use = ads :: nms.use }
-
-let insert_local nms li = { nms with local_defs = li :: nms.local_defs }
-
-(* Cache of absolute paths *)
-let path_cache = Hashtbl.create 100
-
-let find_file includedirs name =
-  let key = (includedirs, name) in
-  
-  if Hashtbl.mem path_cache key then Lwt.return (Hashtbl.find path_cache key)
-  else
+let insert_assoc nms key replaced =
+  if Hashtbl.mem nms.assoc key then
     begin
-      (* Look in all include dirs *)
-      let rec loop = function
-        | [] -> Lwt.return_none (* Not found *)
-        | dir :: rest ->
-          let path = dir // name in
-          if%lwt Lwtfile.is_file ~follow:true path then Lwt.return_some path
-          else loop rest
-      in
-      
-      let%lwt opath = loop includedirs in      
-      Hashtbl.add path_cache key opath ;
-      Lwt.return opath
+      (* We cannot possibly have already replaced this localized identifier !?! *)
+      Printf.printf "Identifier found twice : %s (%s)    replacement : %s \n%!" (replacekey2s key) (pos2s (get_key_loc key)) (replaced2s replaced)
+    end ;
+  Hashtbl.add nms.assoc key replaced ;
+  nms
+
+let reloc pos li = List.map (fun i -> { i with pos } ) li
+
+(* Receives a loc ident. Replace it by a (relocated) qualified name. *)
+let qualify ~warn i nms =
+
+  (* Is it a name in the current environment? *)
+  match env_find nms.env i with
+  | Some (Forid | Whenid | Arg _) -> None (* Do nothing *) 
+  | Some (Decl (Withclause _ | Packnew _ | Package _ | Typedef _ | Subtype _ | Procdef _ | Procdecl _ | Vardef _)) -> None (* Do nothing *)
+  | Some (Decl (Rename pr)) -> Some (reloc i.pos pr.pack_orig)
+  | Some (Decl (Funrename fr)) -> Some (reloc i.pos fr.fun_orig)
+  | None ->     
+    (* Unknown identifier.
+     * Is it a visible identifier in some opened package? *)
+    begin match use_env_binds nms.use i with
+      | [ (li, _) ] -> Some (reloc i.pos li)
+      | [] ->
+        (* Unknown identifier *)
+        if warn then Printf.printf "*Warning: unknown identifier %s\n%!" (l2s i) ;
+        None
+        
+      | _ ->
+        (* Overloading. We choose NOT to expand. *)
+        Printf.printf "*Warning: overloaded identifier %s\n%!" (l2s i) ;
+        None
     end
 
-(* Maps a long_ident package name to a file name. *)
-let pack2file li =
-  let open Text in
-  
-  let res = Text.lower (Common.sep l2s "-" li) ^ ".ads" in  
-  let len = length res in
+let expand_longid ~warn li acu =
+  match li with
+  | [] -> assert false (* Empty long ident *)
+  | i :: is ->
+    begin match qualify ~warn i acu with
+      | None -> return li acu (* Nope *)
+      | Some li2 ->
+        let full_li = li2 @ is in
+        return full_li (insert_assoc acu (K_longid full_li) (R_longid (li, full_li)))
+    end
+          
+(* Mapper that inserts fully qualified identifiers in the ast. *)
+let qualified_ids_map =
+  object(self)
+    inherit [nmspace] tree_mapper scoped as super
 
-  (* Special rule for a- g- i- s-, see spec. *)
-  match sub res 0 2 with
-  | "a-" | "g-" | "i-" | "s-" -> get res 0 ^ "~" ^ sub res 2 (len - 2)
-  | _ -> res
+    (* With => the first package name is now bound in the environment. *)
+    method! with_id li acu =
+      let- (li, acu) = expand_longid ~warn:false li acu in
 
-
-(* Filters public definitions in a package *)
-let filter_public = function
-  | Withclause _ -> None
-  | Rename _ -> None
-  | Packnew (i, _, _) -> Some i
-  | Package _ -> None
-  | Typedef (i, _, _, _) -> Some i
-  | Subtype (i, _, _) -> Some i
-  | Procdef def -> Some def.decl.procname
-  | Procdecl decl -> Some decl.procname
-  | Funrename fr -> Some fr.fun_alias.procname
-  | Vardef v -> Some v.varname
-
-
-(* Cache of ads declarations *)
-let ads_cache = Hashtbl.create 100                  
-
-let lwt_read_ads includedirs pack_name =
-
-  let filename = pack2file pack_name in
-  let key = (includedirs, filename) in
-  
-  if Hashtbl.mem ads_cache key then Lwt.return (Hashtbl.find ads_cache key)
-  else  
-    match%lwt find_file includedirs filename with
-    (* .ads file not found *)
-    | None -> Lwt.return (not_found pack_name)
-
-    | Some path ->
-      let%lwt p_file = Readfile.lwt_parse_file path in
-
-      Lwt.return
-        (p_file >>=
-         (fun f ->
-            (* get all decls *)
-            Astread.package_decls f >>=
-            (fun decls ->
-               let defs = Common.revmapfilter decls filter_public in
-               let result = pv { pack_name ; defs } in
-               Hashtbl.add ads_cache key result ;
-               result
-            )))
-
-
-let cached_ads includedirs pack_name =
-  let filename = pack2file pack_name in
-  let key = (includedirs, filename) in
-  
-  if Hashtbl.mem ads_cache key then Hashtbl.find ads_cache key
-  else failwith "Namespacenorm.cached_ads: not cached."
-
-
-(* Replace, if needed, a long identifier by a fully qualified long identifier. *)
-let qualified_li li acu =
-  Printf.printf "Qualified_li li = %s, current acu = \n%s\n%!" (li2s li) (nmspace2s acu) ;
-  li (*  ???? TODO or not TODO ?????? *)
-
-let block_exit inacu _outacu = inacu
-
-(* FIXME TODO *)
-let merge ~acu0 f =
-  let (acu2, g) = f ~acu1:acu0 in
-  g ~acu2
-
-(* Mapper that inserts fully qualified identifiers. *)
-let qualified_ids_map includedirs =
-  object
-    inherit [nmspace] tree_mapper { block_exit ; merge } as super
-
-    (*
-    (* Example, to be removed *)
-    method! use_id li acu = return li { acu with nmsp = insert_use li acu.nmsp }
-    method! pack_rename pr acu = return pr { acu with nmsp = insert_pr pr acu.nmsp }
-    method! procdecl decl acu = return decl (insert_decl decl acu)
-    (* *)
-*)
-
-    (* Update namespace *)
-
-    (* Qualify identifier if applicable. *)
-    method! long_id li acu = return (qualified_li li acu) acu 
-        
-    (* Update namespace ? *)
+      let first = match li with
+        | [] -> assert false (* Empty package name ? *)
+        | ii :: _ -> ii
+      in      
+      { acu with env = insert_env acu.env first (Decl (Use_env.empty_package first)) }
+    
     method! use_id li acu =
-      let qual_packname = qualified_li li acu in
-      let p_defs = cached_ads includedirs qual_packname in
-      return qual_packname (insert_ads acu p_defs.pv)
+      let- (li, acu) = self#long_id li acu in
+      { acu with use = insert_use acu.use li }
 
     method! pack_rename pr acu =
-      Printf.printf "Visiting %s\n%!" (Astprint.packrenames ~margin:"  " pr) ;
-      let ret = super#pack_rename pr acu in
-      return ret.rval { acu with pack_renames = pr :: acu.pack_renames }
+      (* long_id is qualified when calling super. *)
+      let- (pr, acu) = super#pack_rename pr acu in
+      { acu with env = insert_env acu.env pr.pack_alias (Decl (Rename pr)) }
 
-    method! var_id id acu =
-      Printf.printf "Visiting vardef %s\n%!" (l2s id) ;
-      return id (insert_local acu id)
+    method! packnew ((id,_,_) as p) acu =
+      let- (p, acu) = super#packnew p acu in
+      { acu with env = insert_env acu.env id (Decl (Packnew p)) }
+        
+    method! fun_rename fr acu =
+      let- (fr, acu) = super#fun_rename fr acu in
+      { acu with env = insert_env acu.env fr.fun_alias.procname (Decl (Funrename fr)) }
     
-    (*
-    (* Vardef *)
-*
-    (* Typedef *)
-    method type_id: (loc_ident, 'a) mapper
+    (*** Expand identifiers. ***)
 
+    (* Qualify 1st of longid identifier if applicable. *)
+    method! long_id li acu = expand_longid ~warn:true li acu
+
+    method! typename li acu = self#long_id li acu
+
+    (* expr_id are the first elements when calling a function such as P1.P2.P3.fun 
+     * P1 is an expr_id, P2, P3, fun are selectors. 
+     * P1 can be expanded, not P2, P3, fun. 
+     * If expanded, it must be replaced by a Select. *)
+    method! expr ln e acu = match e with
+      | Id i ->
+
+        (* Printf.printf "\nConsidering Expr_id(%s)  current ACU is \n%s\n\n%!" (l2s i) (nmspace2s acu) ; *)
+        
+        begin match qualify ~warn:true i acu with
+          | None -> return e acu (* Nope *)
+          | Some [] -> assert false
+          | Some (i1 :: iz) ->
+            (* Printf.printf " -> Some %s\n\n%!" (li2s (i1 :: iz)) ;  *)
+            let e2 = List.fold_left (fun ee ii -> Select (ee, ii)) (Id i1) iz in
+            return e2 (insert_assoc acu (K_select i1) (R_select (i, e2)))
+        end
+        
+      | _ -> super#expr ln e acu
+
+
+    (*** Record local names. ***)
+
+    method! for_id id acu = return id { acu with env = insert_env acu.env id Forid }
+    method! when_id id acu = return id { acu with env = insert_env acu.env id Whenid }
     
-    (* Beware, expr_id work with Select. *)
-    (* method expr_id: label_namespace -> (loc_ident, 'a) mapper *)
-    (* method select_id: (loc_ident, 'a) mapper *)
+    method! vardef vardef acu =
+      let- (vd, acu) = super#vardef vardef acu in
+      { acu with env = insert_env acu.env vd.varname (Decl (Vardef vd)) }
 
+    method! typedef typedef acu =
+      let- (td, acu) = super#typedef typedef acu in
+      { acu with env = insert_env acu.env td.t_name (Decl (Typedef td)) }
 
-    method pnew_id: (loc_ident, 'a) mapper
-    method procdecl: (procdecl, 'a) mapper
-    method procdef: (procdef, 'a) mapper
-    method procname: (loc_ident, 'a) mapper
-    method pv_declaration: (declaration list pv, 'a) mapper
-*)
+    method! subtypedef subtypedef acu =
+      let- (std, acu) = super#subtypedef subtypedef acu in
+      { acu with env = insert_env acu.env std.st_name (Decl (Subtype std)) }
+
+    method! arg kind a acu =
+      let- (a, acu) = super#arg kind a acu in
+      match kind with
+      | Typedef_arg | Proc_arg false -> acu (* Not binding *)
+      | Proc_arg true -> { acu with env = insert_env acu.env a.argname (Arg a) } (* This is a binder *)
+
+    method! procdef def acu =
+      let- (pd, acu) = super#procdef def acu in
+      { acu with env = insert_env acu.env pd.decl.procname (Decl (Procdef pd)) }
+
   end
 
-let n_file includedirs file =
-  (* Put all USE ads files into the cache. *)
-  let withclauses = Astread.all_wclauses (pv file) in
+let init_nmspace includedirs list =
 
-  (* Feed cache *)
-  let preload = function
-    | With _ -> Lwt.return punit
-    | Use li ->
-      let%lwt p_ads_defs = lwt_read_ads includedirs li in
-      Lwt.return { pv = () ;
-                   errors = p_ads_defs.errors }
-      
-    | Usetype _ -> Lwt.return punit      
-  in
+  let%lwt puse = Use_env.empty_use_env includedirs list in
   
-  let%lwt errs = Lwt_list.map_s preload withclauses in
+  Lwt.return
+    (let>= use = puse in
+     pv { env = builtin_env ;
+          use ;
+          assoc = Hashtbl.create 1000 })
 
-  (* Get only errors *)
-  let errs = swlist errs in
-  
-  let norm_content = (qualified_ids_map includedirs)#content file.content init_nmspace in
-  let norm_file = { file with content = norm_content.rval } in
+let n_file ~includedirs file =
 
-  Lwt.return { pv = norm_file ;
-               errors = errs.errors }
-    
- 
+  let%lwt pinit_acu = init_nmspace includedirs [file.pv] in
+  Lwt.return
+    (let>= acu = pinit_acu in
+     let norm_file = qualified_ids_map#file file acu in
+
+     pv norm_file.rval.pv)

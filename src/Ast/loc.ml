@@ -6,7 +6,17 @@ type pos = {
 
 let mkpos (p1, p2) = { start = p1 ; endp = p2 }
 
-let dummypos = { start = Lexing.dummy_pos ; endp = Lexing.dummy_pos }
+let dummy_lexpos name =
+  Lexing.{ pos_fname = name ;
+           pos_lnum = 0 ;
+           pos_bol = 0 ;
+           pos_cnum = 0 }
+
+let dummypos name =
+  let start = dummy_lexpos name in
+  { start  ; endp = start }
+
+let builtinpos = dummypos "-builtin-"
 
 (* Localized value *)
 type 'a loc = {
@@ -16,10 +26,12 @@ type 'a loc = {
 
 let mkloc pp v = { pos = mkpos pp ; v }
 
-let mkdummy v = { pos = dummypos ; v }
+let mkdummy name v = { pos = dummypos name ; v }
 
-let loc2s l = Printf.sprintf "File %s: line %d, characters %d-%d"
-    l.pos.start.pos_fname l.pos.start.pos_lnum (l.pos.start.pos_cnum - l.pos.start.pos_bol)
-    (l.pos.endp.pos_cnum - l.pos.start.pos_bol)
+let mkbuiltin v = { pos = builtinpos ; v }
+
+let pos2s p = Printf.sprintf "File %s: line %d, characters %d-%d"
+    p.start.pos_fname p.start.pos_lnum (p.start.pos_cnum - p.start.pos_bol)
+    (p.endp.pos_cnum - p.start.pos_bol)
 
 

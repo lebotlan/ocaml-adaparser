@@ -15,7 +15,7 @@ let test_proc =
     out = Some "Blabla.Float"
   }
 
-let includedirs = [ "Ada" ]
+let includedirs = [ "Ada" ; "/home/commetud/1ere Annee/ADA/Sources/GAda/" ]
 
 let run () =
   if Array.length Sys.argv <> 2 then
@@ -35,7 +35,7 @@ let run () =
       Lwt_list.iter_s (fun err -> Lwt_io.printf " * %s\n" (lp2s err)) errs.errors ;%lwt
       
       (* Normalise file *)
-      let%lwt p_nfile = Namespacenorm.n_file includedirs p_file.pv in
+      let%lwt p_nfile = Namespacenorm.n_file ~includedirs p_file in
       Lwt_io.print "\n\n=== Normalized file ===\n\n" ;%lwt
       Lwt_io.printf "\n%s\n" (Astprint.pfile2s p_nfile) ;%lwt
 

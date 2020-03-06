@@ -42,7 +42,7 @@ let all_procdecl_map =
         
     method! use_id li acu = return li { acu with namesp = insert_use li acu.namesp }
     method! pack_rename pr acu = return pr { acu with namesp = insert_pr pr acu.namesp }
-    method! procdecl decl acu = return decl (insert_decl decl acu)
+    method! procdecl _kind decl acu = return decl (insert_decl decl acu)
   end
 
 let all_procdecl fpv = (all_procdecl_map#content fpv.pv.content init_acu).acu.decls
