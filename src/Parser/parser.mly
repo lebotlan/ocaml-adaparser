@@ -62,14 +62,17 @@ let get_num num =
 %token FOR FUNCTION GENERIC GOTO 
 %token IF IN IS LIMITED  ISNEW
 %token LOOP MOD NEW NOT 
-%token NULL OF OR 
+%token OF OR 
 %token OUT PACKAGE PRIVATE 
 %token PROCEDURE PROTECTED RAISE RANGE 
 %token RECORD REM RENAMES REQUEUE 
 %token RETURN REVERSE SELECT SEPARATE 
 %token SUBTYPE TAGGED TASK TERMINATE 
 %token THEN TYPE UNTIL USE 
-%token WHEN WHILE WITH XOR 
+%token WHEN WHILE WITH XOR
+
+(* Special token to recover from errors *)
+%token ZZ
 
 (* END and EOF are special: they contain the list of comments read since the previous END or beginning of file. *)
 %token <string list> END
@@ -158,8 +161,6 @@ p_list(ELT):
 | empty { pv [] }
 | l=p_nonempty_list(ELT) { l }
 
-p_flatlist(ELT): pl=p_list(ELT) { let>> l = pl in List.flatten l }
-      
 (* Localized identifier *)
 %inline loc_ident:
 | id=IDENT { mkloc $loc id }
@@ -177,7 +178,7 @@ dotted_name: ids = separated_nonempty_list(DOT, simple_loc_ident) { ids }
 
 (****************  FILES, COMPILATION UNITS  *****************)
 
-file: decls=declaration* file_comments=EOF { pv { path = "" ;
+file: decls=pl_declarations file_comments=EOF { pv { path = "" ;
                                                   (* Declarations are flattened *)
                                                   content = decls ;
                                                   file_comments ;
@@ -190,6 +191,10 @@ file: decls=declaration* file_comments=EOF { pv { path = "" ;
 | GTGT GTGT GTGT garbage_token EOF { assert false }
                  
 (**************  DECLARATIONS AND DEFINITIONS  ***************)
+
+pl_declarations: dlpl=declaration*     {  let>> dll = swlist dlpl in
+					  List.flatten dll }
+
 declaration:
 
 (* Private is ignored *)                                              
@@ -246,14 +251,11 @@ withclause:
 (* Ignored *)
 withprivate: WITH PRIVATE { }
                    
-p_declarations: d=p_flatlist(declaration) { d }
-                   
-                   
 (********************  PACKAGES  *********************)
         
 package_sig: 
 PACKAGE package_name=dotted_name IS 
-        pdecl=declaration*
+        pdecl=pl_declarations
         package_comments=END endname=dotted_name SEMI
                                                                                      
 			 { expected_long package_name endname
@@ -267,7 +269,7 @@ PACKAGE package_name=dotted_name IS
                                           
 package_body:
 PACKAGE BODY package_name=dotted_name IS
-        pdecl=declaration*
+        pdecl=pl_declarations
         ob=init_block?
         package_comments=END endname=dotted_name SEMI
                                           
@@ -317,7 +319,7 @@ mode:
                                       
 procdef:
 |      pd = procdecl IS
-           declarations=declaration*
+           declarations=pl_declarations
        BEGIN
            body=exn_block?    
            coms=END endname=loc_ident? SEMI
@@ -346,9 +348,10 @@ procdef:
                        let kw = match decl.rettype with None -> "procedure " | _ -> "function " in
                        pv ~err:(mkloc $loc (Empty (kw ^ i2s decl.procname.v)))
 			  { decl ;
-                            declarations = [] ;
+                            declarations = pv [] ;
                             body = vun ;
                             proc_comments = coms } }
+
 
 %inline vardef:
 (* Constant or variable declaration *)
@@ -410,7 +413,7 @@ type_expr:
 
 (***********************  STATEMENTS  ************************)
 
-block: pl=p_nonempty_list(statement)                   { let>> l = pl in Seq l }
+block: pl=p_nonempty_list(statement)                   { let>> l = pl in Seq (true,l) }
 
 exn_block: pb=block e=exn_handler?                      { match e with None -> pb
                                                                      | Some pl ->
@@ -425,7 +428,6 @@ in_or_of:
 | OF                          { `OF }
 
 statement: 
-| NULL SEMI                                                        { pv vun }
 | DELAY e=expr SEMI                                                { pv (App (Value Builtins.delay, [([], e)])) }
 | RAISE e=expr SEMI                                                { pv (App (Value Builtins.araise, [([], e)])) }
 | RAISE SEMI                                                       { pv (App (Value Builtins.araise, [])) }
@@ -446,16 +448,15 @@ statement:
 | LOOP ps=block END LOOP SEMI                                      { let>> s = ps in While (Id (mkloc $loc i_exit), s) }
 
 | bl=block_label? DECLARE
-       pd=p_declarations
+      pdecl=pl_declarations
   BEGIN ps=exn_block END el=loc_ident? SEMI
   								   {
 								     expected ~may_be_empty:true
 									      (Common.option_default bl empty_ident)
 									      (Common.option_default el empty_ident)
                                                                      >>>
-								       let>> s = ps
-								       and>= d = pd in
-								       Declare (d, s) }
+								       let>> s = ps in
+								       Declare (pdecl, s) }
 
 | EXIT WHEN e=expr SEMI                                            { pv (Exitwhen e) }
 
@@ -464,7 +465,7 @@ statement:
 | RETURN e=expr SEMI                                               { pv (Return e) }
 | RETURN SEMI                                                      { pv (Return vun) }
 
-| BEGIN ps=exn_block END SEMI                                      { let>> s = ps in Declare ([], s) }
+| BEGIN ps=exn_block END SEMI                                      { let>> s = ps in Declare (pv [], s) }
              
 elsif:
 | ELSIF e1=expr THEN ps1=block ps2=elsif                           { let>> s1 = ps1 and>= s2 = ps2 in If (e1, s1, s2) }
@@ -568,7 +569,7 @@ garbage_token:
 | FOR | FUNCTION | GENERIC | GOTO 
 | IF | IN | IS | LIMITED | ISNEW
 | LOOP | MOD | NEW | NOT 
-| NULL | OF | OR 
+| OF | OR 
 | OUT | PACKAGE | PRIVATE 
 | PROCEDURE | PROTECTED | RAISE | RANGE 
 | RECORD | REM | RENAMES | REQUEUE 
@@ -582,6 +583,6 @@ garbage_token:
 | GT | COLON | EQUAL | TICK | TICKRANGE
 | DOTDOT | LTLT | BRAKET | LEQ
 | STARSTAR | NOTEQ | GTGT | GEQ
-| ASSIGN | IMPLY
+| ASSIGN | IMPLY | ZZ
              { }
              

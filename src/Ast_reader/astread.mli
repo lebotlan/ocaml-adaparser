@@ -12,5 +12,5 @@ val all_procdecl: Ast.file pv -> (namespace * procdecl) list
 val all_wclauses: Ast.file pv -> withclause list
 
 (* Identifiers exported by a package (.ads) *)
-val package_decls: Ast.file -> pv_declaration
+val package_decls: Ast.file -> pl_declarations
     

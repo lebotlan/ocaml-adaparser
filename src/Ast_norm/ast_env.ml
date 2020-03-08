@@ -17,6 +17,8 @@ let same_name i (i2, _) = Idents.equal i i2
 
 let trim = String.trim
 
+let map_env env f = List.map (fun (i,t) -> (i, f t)) env
+
 let insert_env ?(may_replace=true) env i typ =
   if (not may_replace) && List.exists (same_name i) env then
     failwith ("Ast_env.insert_env: " ^ l2s i ^ " is already bound in the environment.")
@@ -40,14 +42,20 @@ let mkbt name =
   let t_name = Loc.mkbuiltin (Idents.norm name) in
   (t_name, Decl (Typedef { t_name ; t_args = [] ; t_body = Abstract ; t_constrain = None }))
 
-let null =
+let pnull =
   let procname = Loc.mkbuiltin (Idents.norm "null") in
   (procname, Decl (Procdecl { procname ; args = [] ; rettype = None }))
+
+let mkid name = Loc.mkbuiltin (Idents.norm name)
                
 (* String: should be an alias to an array type. 
  * Boolean: should be an enumeration type. *)
 let builtin_env =
   [ mkbt "Integer" ; mkbt "Float" ; mkbt "Boolean" ; mkbt "String" ;
-    null ;
+    pnull ;
   ]
 
+let (id_null, _) = pnull
+let id_true = mkid "true"
+let id_false = mkid "false"
+    

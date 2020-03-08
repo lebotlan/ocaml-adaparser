@@ -127,14 +127,22 @@ let expand_longid ~warn li acu =
 let userfun =
   let merge ~acu0 f =
     let (acu1, g) = f ~acu1:acu0 in
-    let (acu2, c) = g ~acu2:{ acu0 with defs = [] } in
+    let (acu2, c) = g ~acu2:{ acu0 with defs = acu1.defs } in
 
-    let acu = { acu0 with defs = List.rev_append acu2.defs acu1.defs } in    
+    let acu = { acu0 with defs = acu2.defs } in    
     (acu, c)
 
   and block_exit inacu outacu = { inacu with defs = outacu.defs } in
 
   { block_exit ; merge }
+
+
+(* Filters package renames. 
+ * We keep USE clauses, because some overloaded identifiers may still be unqualified. *)
+let remove_decl = function
+  | Rename _ -> false
+  | Funrename _ -> false
+  | _ -> true
 
 (* Mapper that inserts fully qualified identifiers in the ast. *)
 let qualified_ids_map =
@@ -150,6 +158,12 @@ let qualified_ids_map =
         | ii :: _ -> ii
       in      
       { acu with env = insert_env acu.env first (Decl (Use_env.empty_package first)) }
+
+    (* Filters package renames. *)
+    method! pl_declarations kind dlp acu =
+      let+ pl = super#pl_declarations kind dlp acu in
+      let>> ll = pl in
+      List.filter remove_decl ll
     
     method! use_id li acu =
       let- (li, acu) = self#long_id li acu in
@@ -201,8 +215,8 @@ let qualified_ids_map =
     method! for_id id acu = return id { acu with env = insert_env acu.env id Forid }
     method! when_id id acu = return id { acu with env = insert_env acu.env id Whenid }
     
-    method! vardef vardef acu =
-      let- (vd, acu) = super#vardef vardef acu in
+    method! vardef kind vardef acu =
+      let- (vd, acu) = super#vardef kind vardef acu in
       { acu with env = insert_env acu.env vd.varname (Decl (Vardef vd)) }
 
     method! typedef typedef acu =
@@ -231,20 +245,20 @@ let init_nmspace includedirs list =
   let%lwt puse = Use_env.empty_use_env includedirs list in
   
   Lwt.return
-    (let>= use = puse in
+    (let>> use = puse in
 
-     pv { env = builtin_env ;
-          defs = [] ;
-          use ;
-          assoc = Hashtbl.create 1000 } )
+     { env = builtin_env ;
+       defs = [] ;
+       use ;
+       assoc = Hashtbl.create 1000 } )
 
 let all_procdecl ~includedirs file =
   let%lwt pinit_acu = init_nmspace includedirs [file.pv] in
   Lwt.return
     (swpair1
-       (let>= acu = pinit_acu in
+       (let>> acu = pinit_acu in
         let norm_file = qualified_ids_map#file file acu in        
-        pv (norm_file.rval.pv, norm_file.acu.defs )))
+        norm_file.rval.pv, norm_file.acu.defs ))
   
 let n_file ~includedirs file =
   let%lwt (f, _) = all_procdecl ~includedirs file in

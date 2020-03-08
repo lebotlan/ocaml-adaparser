@@ -11,7 +11,7 @@ type cost =
   (* X = false instead of not X *)
   | Style_boolean
 
-  (* null block, usually X := X *)
+  (* null block not written null, usually X := X *)
   | Null
 
   (* IF compaction: if cond1 then if cond2 then A (no elses, or identical elses) *)

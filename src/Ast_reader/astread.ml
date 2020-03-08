@@ -13,7 +13,7 @@ let err_to_acu rv = { rv with acu = rv.rval >>= (fun _ -> rv.acu) }
 
 let all_errors_map = object
   inherit [acupv] tree_mapper accumulates as super
-  method! pv_declaration dlpv acu = err_to_acu (super#pv_declaration dlpv acu)      
+  method! pl_declarations kind dlpv acu = err_to_acu (super#pl_declarations kind dlpv acu)      
   method! file fpv acu = err_to_acu (super#file fpv acu)
 end
 
@@ -69,14 +69,12 @@ let package_decls f =
     (* The package content could not be found (package Foo is ...) *)
     | [] -> pv ~err:{ pos = f.fpos ; v = Missing "package content" } []
 
-    | { pv = [] ; _ } :: rest -> loop rest
-
     (* We have found a package declaration *)
-    | { pv = Package pc :: _ ; _ } :: _ -> pv (List.flatten (List.map (fun pvd -> pvd.pv) pc.package_declarations))
+    | Package pc :: _ -> pc.package_declarations
 
     (* Ignore other top-level declarations *)
-    | { pv = _ :: rest1 ; errors } :: rest2 -> loop ( { pv = rest1 ; errors } :: rest2 )
+    | _ :: rest -> loop rest
 
   in
 
-  loop f.content
+  loop f.content.pv

@@ -98,7 +98,7 @@ let insert_use_ads env ads =
 let empty_package name =
   Package { package_name = [name] ;
             package_sig = true ;
-            package_declarations = [] ;
+            package_declarations = pv [] ;
             package_comments = [] ;
             package_init = None }
 
@@ -124,20 +124,20 @@ let lwt_cache_ads env pack_name =
       Lwt.return
         (* get all decls *)
         (let>= f = p_file in
-         let>= decls = Astread.package_decls f in
+         let>> decls = Astread.package_decls f in
 
          let defs = Common.revmapfilter decls filter_public in
          let result = { pack_name ; opened = false ; defs } in
          Hashtbl.add env.ads_cache filename result ;
-         punit)
+         ())
 
 let lwt_read_ads env pack_name =
   let%lwt pu = lwt_cache_ads env pack_name in
   try
     Lwt.return
-      (let>= () = pu in
+      (let>> () = pu in
        let filename = Idents.pack2file pack_name in
-       pv (Hashtbl.find env.ads_cache filename).defs)
+       (Hashtbl.find env.ads_cache filename).defs)
   with _ -> failwith ("package " ^  li2s pack_name ^ " cannot be found." )
   
 
@@ -190,7 +190,7 @@ let empty_use_env ?share includedirs ?(packages=[]) files =
   in
 
   let%lwt penv = Lwt_list.fold_left_s
-      (fun penv li -> let%lwt pu = lwt_cache_ads penv.pv li in Lwt.return (let>= () = pu in pv penv.pv))
+      (fun penv li -> let%lwt pu = lwt_cache_ads penv.pv li in Lwt.return (let>> () = pu in penv.pv))
       penv packages
   in
 

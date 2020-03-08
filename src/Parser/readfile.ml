@@ -28,6 +28,16 @@ let parse_file path =
 
 module I = Parser.MenhirInterpreter
 
+let tokpos =
+  let dpos = Loc.dummypos "-error-token-" in
+  (Parser.ZZ, dpos.start, dpos.start)
+
+let rec on_error last_valid_checkpoint cp = match cp with
+  | I.Accepted v -> Lwt.return v                      
+  | I.InputNeeded _ -> on_error cp (I.offer cp tokpos)
+  | I.Shifting _ | I.AboutToReduce _ | I.HandlingError _ -> on_error last_valid_checkpoint (I.resume cp)
+  | I.Rejected -> Lwt.fail_with "Rejected-after-failure."
+
 (* Lwt-version *)
 let lwt_parse_file path =
 
@@ -51,9 +61,14 @@ let lwt_parse_file path =
             let%lwt tokpos = get_token () in
             loop cp (I.offer cp tokpos)
               
-          | I.Shifting _ | I.AboutToReduce _ | I.HandlingError _ -> loop last_valid_checkpoint (I.resume cp)
+          | I.Shifting _ | I.AboutToReduce _ -> loop last_valid_checkpoint (I.resume cp)
                                                                 
           | I.Rejected -> Lwt.fail_with "Rejected."
+
+          | I.HandlingError _ ->
+            Printf.printf "Handling error (try to print parser state)  :\n%!" ;
+            Lexhelp.lwt_dumplex feeder lexbuf 10 ;%lwt
+            on_error last_valid_checkpoint last_valid_checkpoint
         in
 
         let%lwt past = loop init init in          

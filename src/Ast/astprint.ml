@@ -65,7 +65,7 @@ and packrenames ~margin pr = Printf.sprintf "%spackage %s renames %s ;\n" margin
 
 and funrenames ~margin fr = Printf.sprintf "\n%s%s renames %s ;\n\n" margin (procdecl2s ~margin fr.fun_alias) (li2s fr.fun_orig)
 
-and pv_declaration2b title1 title2 ~margin p = pv2s (title1 ^ " " ^ title2) (blist2b declaration2b) ~margin p
+and pl_declaration2b title1 title2 ~margin p = pv2s (title1 ^ " " ^ title2) (blist2b declaration2b) ~margin p
 
 and packcontent2b ~margin pc =
 
@@ -76,7 +76,7 @@ and packcontent2b ~margin pc =
     (comments2b ~margin pc.package_comments)
     margin
     (if pc.package_sig then "" else " body") name
-    (blist2b (pv_declaration2b "package" name) ~margin:margin2 pc.package_declarations)
+    (pl_declaration2b "package" name ~margin:margin2 pc.package_declarations)
   
     (match pc.package_init with
      | None -> ""
@@ -100,7 +100,7 @@ and procdef2b ~margin def =
   (comments2b ~margin def.proc_comments) ^
   margin ^ (procdecl2s ~margin:margin2 def.decl) ^ " is\n" ^
   
-  (blist2b (pv_declaration2b kw (l2s def.decl.procname)) ~margin:margin2 def.declarations) ^
+  (pl_declaration2b kw (l2s def.decl.procname) ~margin:margin2 def.declarations) ^
   
   margin ^ "begin\n" ^
   margin2 ^ expr2s ~margin:margin2 def.body ^ " ;\n" ^
@@ -159,7 +159,7 @@ and subconstraint2s = function
 
 and expr2s ~margin = function
   | Value av -> Adavalue.tos ~margin av
-  | Id id -> l2s id
+  | Id id -> "Id(" ^ l2s id ^ ")"
   | Assign (e1, e2) -> Printf.sprintf "%s := %s" (expr2s ~margin:"" e1) (expr2s ~margin:"" e2)
   | Return  e -> Printf.sprintf "return %s" (expr2s ~margin e)
 
@@ -205,9 +205,9 @@ and expr2s ~margin = function
   | Declare (decls, e) ->
     let margin2 = margin ^ indent in
     "declare\n" ^
-    (blist2b declaration2b ~margin:margin2 decls) ^
+    (pl_declaration2b "declare" "" ~margin:margin2 decls) ^
     margin ^ "begin\n" ^
-    margin2 ^ expr2s ~margin:margin2 e ^
+    margin2 ^ expr2s ~margin:margin2 e ^ "\n" ^
     margin ^ "end declare"
     
   | Case (e, whens) ->
@@ -216,7 +216,9 @@ and expr2s ~margin = function
     blist2b when2b ~margin:margin' whens ^
     margin ^ "end case"
 
-  | Seq l -> Common.sep (expr2s ~margin) (" ;\n" ^ margin) l
+  | Seq (o,l) ->
+    let (first, last) = if o then "{", "}" else "[", "]" in
+    first ^ Common.sep (expr2s ~margin) (" ;\n" ^ margin) l ^ last
 
   | New (id, []) -> "new " ^ li2s id
   | New (id, l) -> "new " ^ li2s id ^ "'(" ^ Common.sep (expr2s ~margin:"") ", " l ^ ")"
@@ -251,7 +253,7 @@ and labels2s l = Common.sep (expr2s ~margin:"") " | " l
 
 let file2s ~margin:_ file =
 
-  blist2b (pv_declaration2b "file" file.path) ~margin:"" file.content ^
+  pl_declaration2b "file" file.path ~margin:"" file.content ^
   
   comments2b ~margin:"" file.file_comments ^
   "\n\n"

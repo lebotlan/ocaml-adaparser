@@ -145,7 +145,6 @@ let value2s = function
   | OUT -> "OUT"
   | OR -> "OR"
   | OF -> "OF"
-  | NULL -> "NULL"
   | NOTEQ -> "NOTEQ"
   | NOT -> "NOT"
   | NEW -> "NEW"
@@ -205,6 +204,7 @@ let value2s = function
   | EOF _ -> "EOF"
   | END _ -> "END"
   | CHAR c -> "'" ^ String.make 1 c ^ "\'"
+  | ZZ -> "ZZ"
     
 let rec dumplex lexer lexbuf n =
   if n <= 0 then Printf.printf "\n\n%!" 

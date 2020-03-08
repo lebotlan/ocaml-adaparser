@@ -4,7 +4,7 @@ open Adavalues.Adavalue
 open Ast
 open Parse_errors
     
-(*** See astmap.ml for all explanations ***)
+(*** See astmap.ml for all explanations. The comments are there. ***)
 
 type ('v,'a) ret =
   { rval: 'v ;
@@ -37,17 +37,24 @@ type arg_kind = Proc_arg of bool | Typedef_arg
 
 type procdecl_kind = Pdk_only_decl | Pdk_funrename | Pdk_procdef
 
+type dkind = Toplevel | In_package | In_declare | In_proc
+
 
 class ['a] tree_mapper: 'a user_fun ->
   object
+    method block : 'a -> ('v, 'a) ret -> ('v, 'a) ret
+    
     method adavalue: (expr adavalue, 'a) mapper
+    method app: (expr * nexpr list, 'a) mapper
     method arg: arg_kind -> (arg, 'a) mapper
     method argname: arg_kind -> (loc_ident, 'a) mapper
     method attribute: (loc_ident, 'a) mapper
     method comments: (string list, 'a) mapper
-    method content: (pv_declaration list, 'a) mapper
+    method content: (pl_declarations, 'a) mapper
     method core_vardef: (vardef, 'a) mapper
-    method declaration: (declaration, 'a) mapper
+    method declaration: dkind -> (declaration, 'a) mapper
+    method declare: (pl_declarations * expr, 'a) mapper
+    method declare_expr: (expr, 'a) mapper
     method enumerate_value: (loc_ident, 'a) mapper
     method expr: label_namespace -> (expr, 'a) mapper
     method expr_id: label_namespace -> (loc_ident, 'a) mapper
@@ -64,11 +71,12 @@ class ['a] tree_mapper: 'a user_fun ->
     method pack_rename: (pack_rename, 'a) mapper
     method packname: (long_ident, 'a) mapper
     method packnew: (packnew, 'a) mapper
+    method pl_declarations: dkind -> (pl_declarations, 'a) mapper
     method pnew_id: (loc_ident, 'a) mapper
+    method proc_body: (expr, 'a) mapper
     method procdecl: procdecl_kind -> (procdecl, 'a) mapper
     method procdef: (procdef, 'a) mapper
     method procname: procdecl_kind -> (loc_ident, 'a) mapper
-    method pv_declaration: (declaration list pv, 'a) mapper
     method record_field: (vardef, 'a) mapper
     method select_id: (loc_ident, 'a) mapper
     method subconstraint: (subt_constraint, 'a) mapper
@@ -81,11 +89,17 @@ class ['a] tree_mapper: 'a user_fun ->
     method use_id: (long_ident, 'a) mapper
     method usetype_id: (long_ident, 'a) mapper
     method var_id: (loc_ident, 'a) mapper
-    method vardef: (vardef, 'a) mapper
+    method vardef: dkind -> (vardef, 'a) mapper
     method when_id: (loc_ident, 'a) mapper
     method whenc: (when_clause, 'a) mapper
     method with_id: (long_ident, 'a) mapper
     method withclause: (withclause, 'a) mapper        
   end
 
+
+class ['b] short_mapper: 'a tree_mapper -> ('a -> 'b) -> ('b -> 'a) ->
+  object
+    method file: (file pv, 'b) mapper
+    method procdef: (procdef, 'b) mapper
+  end
     

@@ -27,6 +27,10 @@ val empty_env: env
 (* Environment containing some builtin names. *)
 val builtin_env: env
 
+val id_null: loc_ident
+val id_true: loc_ident
+val id_false: loc_ident
+
 (* Inserts a binding in the environment. 
  * Replace if already bound and may_replace is true (true by default), otherwise it fails. *)
 val insert_env: ?may_replace:bool -> env -> loc_ident -> id_typ -> env
@@ -36,3 +40,6 @@ val env_find: env -> loc_ident -> id_typ option
 val id_typ2s: id_typ -> string
 
 val env2s: env -> string
+
+val map_env: env -> (id_typ -> id_typ) -> env
+  

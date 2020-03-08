@@ -8,7 +8,11 @@ open Ast
 
 
 
-(*** Normalise namespace: replaces all identifiers by their fully qualified name. ***)
+(*** Normalize: 
+ *  - replaces all identifiers by their fully qualified name. 
+ *  - remove package renames (which are now useless). 
+ *  - USE clauses are kept, since some overloaded identifiers may be kept unqualified (we could remove useless USE clauses).
+ *)
 
 
 (* Namespace: contains renamings, USE clauses, and local variables. *)

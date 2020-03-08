@@ -169,6 +169,13 @@ type procdecl_kind =
   (* In a procdef *)
   | Pdk_procdef
 
+(* In which context declarations are found. *)
+type dkind =
+  | Toplevel
+  | In_package
+  | In_declare
+  | In_proc
+
 (* Note:
  *   nexpr are labeled expressions, like this:  label => expr
  *   They are used for function application, building records, building arrays.
@@ -243,7 +250,7 @@ class ['a] tree_mapper user_fun =
     loop l acu
   in
 
-  let block: 'v . 'a -> ('v,'a) ret -> ('v,'a) ret = fun inacu ret -> return ret.rval (user_fun.block_exit inacu ret.acu) in
+  let block inacu ret = return ret.rval (user_fun.block_exit inacu ret.acu) in
 
   let mkblock f = fun acu -> block acu (f acu) in
 
@@ -254,6 +261,11 @@ class ['a] tree_mapper user_fun =
     
     (* ln  means label namespace *)
 
+    method block: 'v . 'a -> ('v,'a) ret -> ('v,'a) ret = fun acu ret -> block acu ret
+
+    method declare_expr e acu = o#expr S e acu
+    method proc_body e acu = o#expr S e acu
+    
     method expr ln e acu =
       let (let++) u v w = letpp u v w in
       
@@ -314,24 +326,17 @@ class ['a] tree_mapper user_fun =
         and+ ee2 = o#expr S e2 in
         Is_in (ee1, ee2)
 
-      | Seq el -> let+ l = list (o#expr S) el acu in Seq l
+      | Seq (ord,el) -> let+ l = list (o#expr S) el acu in Seq (ord,l)
 
       | Tuple nel -> let+ l = list o#nexpr nel acu in Tuple l
 
-      | App (e, nel) ->
-        let+ ee = o#expr S e acu 
-        and+ l = list o#nexpr nel in
-        App (ee, l)
+      | App (e, nel) -> let+ (e2, nel2) = o#app (e, nel) acu in App (e2, nel2)
 
       | Exitwhen e -> let+ ee = o#expr S e acu in Exitwhen ee
 
       | Return e -> let+ ee = o#expr S e acu in Return ee
 
-      | Declare (dl, e) ->
-        block acu
-          (let+ ll = list o#declaration dl acu
-           and+ ee = o#expr S e in
-           Declare (ll, ee))
+      | Declare (dl,e) -> let+ (dl2, e2) = o#declare (dl, e) acu in Declare (dl2, e2)
 
       | Case (e, ws) ->
         let+ ee = o#expr S e acu
@@ -360,10 +365,21 @@ class ['a] tree_mapper user_fun =
         and+ vvo = option o#adavalue avo in
         TickRange (ee, vvo)
 
+    method declare (dl, e) acu =
+      block acu
+        (let+ ll = o#pl_declarations In_declare dl acu
+         and+ ee = o#declare_expr e in
+         (ll, ee))
+    
     (* At parse-time, only ground values can appear: numbers, arrays, tuples (records),
      * but no builtin or function. *)
     method adavalue v acu = return v acu
 
+    method app (e, nel) acu =
+      let+ ee = o#expr S e acu 
+      and+ l = list o#nexpr nel in
+      (ee, l)
+    
     method whenc (Match (ido, el, e)) acu =      
       let+ l = list (o#expr S) el acu
 
@@ -424,10 +440,10 @@ class ['a] tree_mapper user_fun =
        
     (*** Declarations ***)
 
-    (* pv_declaration = declaration list pv *)
-    method pv_declaration dlpv acu =
-      let+ dl = list o#declaration dlpv.pv acu in
-      { pv = dl ; errors = dlpv.errors }
+    (* pl_declaration = declaration list pv *)
+    method pl_declarations kind dlp acu =
+      let+ dl = list (o#declaration kind) dlp.pv acu in
+      { pv = dl ; errors = dlp.errors }
 
     method packnew (id, li, ltypes) acu =
       let+ id2 = o#pnew_id id acu
@@ -435,7 +451,7 @@ class ['a] tree_mapper user_fun =
       and+ ltypes2 = list o#ltype ltypes in
       (id2, li2, ltypes2)
     
-    method declaration dl acu = match dl with      
+    method declaration kind dl acu = match dl with      
       | Withclause wc -> let+ w = o#withclause wc acu in Withclause w
 
       | Rename pr -> let+ r = o#pack_rename pr acu in Rename r
@@ -449,7 +465,7 @@ class ['a] tree_mapper user_fun =
 
         (* Package body is a block. *)
         and+ (d,c,io) = mkblock (fun acu ->
-            let+ d = list o#pv_declaration pc.package_declarations acu
+            let+ d = o#pl_declarations In_package pc.package_declarations acu
             and+ c = o#comments pc.package_comments 
             and+ io = option (o#expr S) pc.package_init in
             (d,c,io))
@@ -466,7 +482,7 @@ class ['a] tree_mapper user_fun =
       | Procdef def -> let+ d = o#procdef def acu in Procdef d
       | Procdecl decl -> let+ d = o#procdecl Pdk_only_decl decl acu in Procdecl d
         
-      | Vardef vardef -> let+ vd = o#vardef vardef acu in Vardef vd
+      | Vardef vardef -> let+ vd = o#vardef kind vardef acu in Vardef vd
 
     method typedef td acu =
       let+ i = o#type_id td.t_name acu
@@ -488,7 +504,7 @@ class ['a] tree_mapper user_fun =
         st_typ = l ;
         st_constrain = s }
       
-    method vardef v a = o#core_vardef v a
+    method vardef _kind v a = o#core_vardef v a
     method record_field f a = o#core_vardef f a
 
     (* Used by vardef and record_field *)
@@ -563,8 +579,8 @@ class ['a] tree_mapper user_fun =
              * They should not be mapped again by #arg. *)
             let+ al = list (o#arg (Proc_arg true)) d.args acu
                 
-            and+ dl = list o#pv_declaration def.declarations
-            and+ b = o#expr S def.body
+            and+ dl = o#pl_declarations In_proc def.declarations
+            and+ b = o#proc_body def.body
             and+ c = o#comments def.proc_comments
             in
             
@@ -590,7 +606,7 @@ class ['a] tree_mapper user_fun =
       | Use li -> let+ lid = o#use_id li acu in Use lid
       | Usetype li -> let+ lid = o#usetype_id li acu in Usetype lid
 
-    method content dlpv acu = list o#pv_declaration dlpv acu
+    method content dlpv acu = o#pl_declarations Toplevel dlpv acu
 
     method file fpv acu =
 
@@ -606,4 +622,14 @@ class ['a] tree_mapper user_fun =
     
       { pv = file ; errors = fpv.errors }
           
+  end
+
+class ['b] short_mapper (tmapper: 'a tree_mapper) (f:'a -> 'b) (g:'b -> 'a) =
+
+  let rmap r = { rval = r.rval ; acu = f r.acu } in
+  let map h = fun arg1 arg2 -> rmap (h arg1 (g arg2)) in
+  
+  object
+    method file = map tmapper#file
+    method procdef = map tmapper#procdef
   end

@@ -22,13 +22,15 @@ type procdecl =
     
     (* Return type (for a function). *)
     rettype: long_ident option }
-  
+
+and pl_declarations = declaration list pv
+
 (* Procedure or function definition *)
 and procdef =
   { decl: procdecl ;
 
     (* Local declarations (before the procedure or function BEGIN). *)
-    declarations: pv_declaration list ;
+    declarations: pl_declarations ;
 
     body: expr ;
 
@@ -51,7 +53,7 @@ and ltype = loc_ident option * long_ident
 and package_content =
   { package_name: long_ident ;
     package_sig: bool ;
-    package_declarations: pv_declaration list ;
+    package_declarations: pl_declarations ;
     package_comments: string list ;
     package_init: expr option }
 
@@ -83,8 +85,6 @@ and declaration =
   | Vardef of vardef
 
 and packnew = loc_ident * long_ident * (ltype list)
-
-and pv_declaration = declaration list pv
 
 (* Variable definition *)
 and vardef =
@@ -167,10 +167,14 @@ and expr =
   (* For reverse? X of/in e1 loop e2 *)
   | For     of [`OF | `IN] * bool * loc_ident * expr * expr
                
-  | Declare of declaration list * expr
+  | Declare of pl_declarations * expr
   | Case    of expr * (when_clause list)
   | Return  of expr
-  | Seq     of expr list
+
+  (* Seq: the flag indicates if the sequence is ordered (true by default). 
+   * An unordered sequence contains independent statements. They can be put in any order.
+   * The parser only produces ordered sequences. *)
+  | Seq     of bool * expr list
   | New     of long_ident * (expr list)
   | Is_in   of expr * expr
 
@@ -201,7 +205,7 @@ and label = expr list
 
 type file =
   { path: string ;
-    content: pv_declaration list ;
+    content: pl_declarations ;
     file_comments: string list ;
 
     (* Position of the whole file. *)

@@ -92,7 +92,7 @@ module Make (M: MONAD) =
       add "FOR" FOR ;             add "FUNCTION" FUNCTION ;   add "GENERIC" GENERIC ;     add "GOTO" GOTO ;
       add "IF" IF ;               add "IN" IN ;               add "IS" IS ;               add "LIMITED" LIMITED ;
       add "LOOP" LOOP ;           add "MOD" MOD ;             add "NEW" NEW ;             add "NOT" NOT ;
-      (*   add "NULL" NULL ; *)          add "OF" OF ;               add "OR" OR ;           (* add "OTHERS" OTHERS ; *)
+      add "OF" OF ;               add "OR" OR ;           (* add "OTHERS" OTHERS ; *)
       add "OUT" OUT ;             add "PACKAGE" PACKAGE ;     add "PRIVATE" PRIVATE ;
       add "PROCEDURE" PROCEDURE ; add "PROTECTED" PROTECTED ; add "RAISE" RAISE ;         add "RANGE" RANGE ;
       add "RECORD" RECORD ;       add "REM" REM ;             add "RENAMES" RENAMES ;     add "REQUEUE" REQUEUE ;
