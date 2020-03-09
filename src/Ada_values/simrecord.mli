@@ -34,3 +34,10 @@ val r2s: ?margin:string -> ('a -> string) -> 'a t -> string
 val ft2s: ('a -> string) -> 'a field -> string
 
 val rt2s: ('a -> string) -> 'a rtype -> string
+
+(* cmp x y > 0 iff x > y 
+ * cmp x y = 0 iff x = y *)
+val cmp: ('a -> 'a -> int) -> 'a t -> 'a t -> int
+
+val get_fields: 'a t -> string list
+    

@@ -156,3 +156,38 @@ let get_bool = function
   | Enum d -> Simenum.get_bool d
   | x -> raise (Simenum.Bad_value ("Expected a bool, got ada value " ^ tos x))
 
+
+let rec cmp v1 v2 =
+  match v1, v2 with
+  | Uninitialized, _ -> -1
+  | _, Uninitialized -> 1
+
+  | Enum d1, Enum d2 -> Simenum.cmp d1 d2
+  | Enum _, _ -> -1
+  | _, Enum _ -> 1
+
+  | Enumd d1, Enumd d2 -> Simenum.cmp d1 d2
+  | Enumd _, _ -> -1
+  | _, Enumd _ -> 1
+
+  | Array ar1, Array ar2 -> Simarray.cmp cmp ar1 ar2
+  | Array _, _ -> -1
+  | _, Array _ -> 1
+        
+  | Record r1, Record r2 -> Simrecord.cmp cmp r1 r2
+  | Record _, _ -> -1
+  | _, Record _ -> 1
+
+  | Fun f1, Fun f2 ->
+    if f1 == f2 then 0
+    else
+      let k = Stdlib.compare (f1.fname, List.length f1.args) (f2.fname, List.length f2.args) in
+      if k <> 0 then k
+      else -1
+      
+  | Fun _, _ -> -1
+  | _, Fun _ -> 1
+
+  | Builtin (b1,_), Builtin (b2,_) -> if v1 == v2 then 0 else Stdlib.compare b1 b2
+                                    
+

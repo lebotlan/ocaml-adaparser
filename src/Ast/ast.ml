@@ -2,7 +2,8 @@
 open Idents
 open Adavalues.Adavalue
 open Parse_errors
-
+open Loc
+    
 (* Function arguments *)
 type mode = In | Out | InOut
 
@@ -135,7 +136,9 @@ and subt_constraint =
 (*** EXPRESSIONS (including ranges) ***)
 
 (* Expression *)
-and expr =
+and expr = core_expr loc
+    
+and core_expr =
   (* Immediate value (includes unit) *)
   | Value of expr adavalue
 

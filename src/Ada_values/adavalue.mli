@@ -83,3 +83,5 @@ val mk_string: string -> 'a adavalue
 
 val unit: 'a adavalue
 
+(* Unitialized values are never equal to something else. *)
+val cmp: 'a adavalue -> 'a adavalue -> int

@@ -18,7 +18,6 @@ val expand_var_init: unit short_mapper
 (* Normalization, semantics-preserving. See the first part of cost.ml. *)
 val norm_keep_semantics: (cost loc list) tree_mapper
 
-
 (* Flatten nested sequences. 
  * Unordered sequences become ordered (this is safe). *)
 val flatten_seq: unit tree_mapper
@@ -37,18 +36,5 @@ deux temps : collecter les chaînes, puis appliquer...
 
     
 
-(* Mise en forme normale de l'AST, avec coût *)
+(* Unifier deux AST, avec coût d'unification. *)
 
-(* Ou plutôt : unifier deux AST, avec coût d'unification. *)
-
-
-(* val normalize: file -> file * cost *)
-
-
-
-(* Voir Cost pour les règles à appliquer 
- * 
- *  + enlever les null des séquences
- *  + enlever les else vide
- *
-*) 

@@ -19,7 +19,7 @@ type 'a t = {
   buffer: 'a array ;
 } 
 
-let get_doms x = x.visible_dims
+let get_doms x = x.visible_dims    
 
 let domsize dom =
   assert (dom.hi - dom.lo + 1 >= 0) ;
@@ -81,6 +81,34 @@ let create doms init =
 
 let get sima coords = sima.buffer.(sima.get_pos coords)
 let put sima coords v = sima.buffer.(sima.get_pos coords) <- v
+
+let cmp f ar1 ar2 =
+  let d1 = get_doms ar1
+  and d2 = get_doms ar2 in
+
+  let r = Stdlib.compare d1 d2 in
+  if r <> 0 then r
+  else
+    (* Compare each cell *)
+    let rec loop pos = function
+      | [] ->
+        let pos = List.rev pos in
+        f (get ar1 pos) (get ar2 pos)
+        
+      | dom1 :: doms ->
+        
+        let rec fold_indices = function
+          | [] -> 0 (* All cells are equal *)
+          | i1 :: rest ->
+            let res = loop (i1 :: pos) doms in
+            if res <> 0 then res
+            else (* All cells with coordinate i1&pos are equal *)
+              fold_indices rest
+        in
+        fold_indices (domlist dom1)
+    in
+    loop [] d1
+
 
 let slice sima doms =
   let () =

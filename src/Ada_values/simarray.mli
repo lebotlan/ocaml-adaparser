@@ -25,6 +25,10 @@ val get_doms: 'a t -> dom list
 (* Get slice *)
 val slice : 'a t -> dom list -> 'a t
 
+(* cmp x y > 0 iff x > y 
+ * cmp x y = 0 iff x = y *)
+val cmp: ('a -> 'a -> int) -> 'a t -> 'a t -> int
+
 (* Array type *)
 type 'a atype =
   { (* Domains. None means unconstrained. *)

@@ -42,11 +42,12 @@ let mkbt name =
   let t_name = Loc.mkbuiltin (Idents.norm name) in
   (t_name, Decl (Typedef { t_name ; t_args = [] ; t_body = Abstract ; t_constrain = None }))
 
+let mkid name = Loc.mkbuiltin (Idents.norm name)
+
 let pnull =
-  let procname = Loc.mkbuiltin (Idents.norm "null") in
+  let procname = mkid "null" in
   (procname, Decl (Procdecl { procname ; args = [] ; rettype = None }))
 
-let mkid name = Loc.mkbuiltin (Idents.norm name)
                
 (* String: should be an alias to an array type. 
  * Boolean: should be an enumeration type. *)

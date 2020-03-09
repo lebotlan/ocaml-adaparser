@@ -157,7 +157,9 @@ and subconstraint2s = function
   | Index_constraint l -> "(" ^ Common.sep (expr2s ~margin:"")  ", " l ^ ")"
   | Range_constraint r -> " range " ^ expr2s ~margin:""  r
 
-and expr2s ~margin = function
+and expr2s ~margin locexp = core_expr2s ~margin locexp.v
+
+and core_expr2s ~margin = function
   | Value av -> Adavalue.tos ~margin av
   | Id id -> "Id(" ^ l2s id ^ ")"
   | Assign (e1, e2) -> Printf.sprintf "%s := %s" (expr2s ~margin:"" e1) (expr2s ~margin:"" e2)
@@ -166,7 +168,7 @@ and expr2s ~margin = function
   | Tuple nels -> "(" ^ Common.sep (nexpr2s ~margin:(margin ^ " ")) ", " nels ^ ")"
 
   (* Infix binary op *)
-  | App (Value av, [ ([], e1) ; ([], e2) ]) ->
+  | App ( { v = Value av ; _ } , [ ([], e1) ; ([], e2) ]) ->
     expr2s ~margin e1 ^ " " ^ Adavalue.tos ~margin av ^ " " ^ expr2s ~margin e2
 
   | App (e, nels) ->

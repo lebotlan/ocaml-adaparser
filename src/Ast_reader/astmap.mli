@@ -3,6 +3,7 @@ open Idents
 open Adavalues.Adavalue
 open Ast
 open Parse_errors
+open Loc
     
 (*** See astmap.ml for all explanations. The comments are there. ***)
 
@@ -51,6 +52,7 @@ class ['a] tree_mapper: 'a user_fun ->
     method attribute: (loc_ident, 'a) mapper
     method comments: (string list, 'a) mapper
     method content: (pl_declarations, 'a) mapper
+    method core_expr: pos -> label_namespace -> (core_expr, 'a) mapper
     method core_vardef: (vardef, 'a) mapper
     method declaration: dkind -> (declaration, 'a) mapper
     method declare: (pl_declarations * expr, 'a) mapper

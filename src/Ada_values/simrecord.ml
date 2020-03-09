@@ -52,3 +52,31 @@ let r2s ?(margin="") v2s r = Printf.sprintf "%s(%s)" margin (Common.sep (f2s v2s
 let ft2s t2s ff = Printf.sprintf "%s: %s ;" ff.fname (t2s ff.ftype)
 
 let rt2s t2s rt = Printf.sprintf "record\n    %s\nend record ;" (Common.sep (ft2s t2s) "\n    " rt.tfields)
+
+let get_fields r = List.map (fun (n,_) -> norm_cs r.cs n) r.fields
+
+let cmp f r1 r2 =
+
+  let fields1 = get_fields r1
+  and fields2 = get_fields r2 in
+
+  let res = Stdlib.compare fields1 fields2 in
+
+  if res <> 0 then res
+  else
+    try
+      let rec loop = function
+        | [] -> 0
+        | x :: rest ->
+          let v1 = read r1 x
+          and v2 = read r2 x in
+
+          let res = f v1 v2 in
+          if res <> 0 then res
+          else loop rest
+      in          
+      loop fields1
+
+    with Badfield _ -> assert false (* They have the same fields !!! *)
+      
+  

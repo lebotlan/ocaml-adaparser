@@ -19,7 +19,8 @@
 open Astlib
 open Parse_errors
 open Ast
-
+open Loc
+    
 (* Type returned by all mapping methods: a value and a new acu. *)
 type ('v,'a) ret =
   { (* rval: returned value *)
@@ -200,9 +201,9 @@ let find_nexpr_kind = function
   (* Empty nexpr, we don't care. *)
   | [] -> S
 
-  | [Value _] -> S    
-  | [Id _] -> A (* Probably an argument name. Can still be a constant, though. *)
-  | [_] -> S
+  | [ { v = Value _ ; _ } ] -> S    
+  | [ { v = Id _ ; _ } ] -> A (* Probably an argument name. Can still be a constant, though. *)
+  | [ _ ] -> S
 
   (* Multiple labels: it is not an argument *)
   | _ -> S
@@ -265,8 +266,12 @@ class ['a] tree_mapper user_fun =
 
     method declare_expr e acu = o#expr S e acu
     method proc_body e acu = o#expr S e acu
-    
+
     method expr ln e acu =
+      let+ v = o#core_expr e.pos ln e.v acu in
+      { v ; pos = e.pos }
+    
+    method core_expr _pos ln e acu =
       let (let++) u v w = letpp u v w in
       
       match e with

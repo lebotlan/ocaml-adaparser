@@ -17,6 +17,9 @@ type cost =
   (* IF compaction: if cond1 then if cond2 then A (no elses, or identical elses) *)
   | If_compaction
 
+  (* then null else null *)
+  | Useless_if
+
 
   (*** Modified semantics ***)
 

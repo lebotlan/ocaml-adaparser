@@ -3,23 +3,40 @@ open Astreader
 open Astmap
 open Ast
 open Adabuiltins
+open Adavalues
 open Loc
 open Cost
     
+let id_null = Ast_env.id_null
 
-let is_id id = function
+let is_id id e = match e.v with
   | Id x -> Idents.equal x id
   | _ -> false
+
+let rec is_null e =
+  is_id id_null e
+  ||
+  match e.v with
+  | Seq (_,el) -> List.for_all is_null el
+  | Value w -> Adavalue.(0 = cmp unit w)
+  | _ -> false
+
+let is_null e =
+  Printf.printf "is_null? on %s\n%!" (Astprint.expr2s ~margin:"" e) ;
+  let res = is_null e in
+  Printf.printf "Result is %b\n%!" res ;
+  res
 
 (*** Expand variable initialisation ***)
 
 type var_inits = vardef list
 
-let take_init vardef = Common.option_map vardef.vinit (fun e -> Assign (Id vardef.varname,e))
+let take_init vardef = Common.option_map vardef.vinit
+    (fun e -> { pos = e.pos ; v = Assign ({ pos = vardef.varname.pos ; v = Id vardef.varname}, e) } )
 
 let insert_seq vardefs e =
   let inits = Common.revmapfilter vardefs take_init in
-  Seq (true, inits @ [e])
+  { pos = e.pos ; v = Seq (true, inits @ [e]) }
 
 let expand_var_map =
   object(o)
@@ -46,18 +63,16 @@ let expand_var_init = new short_mapper expand_var_map (fun _ -> ()) (fun () -> [
   
 (*** Flatten SEQ in expressions ***)
 
-let id_null = Ast_env.id_null
-
 let flatten_seq =
   object
     inherit [unit] tree_mapper scoped as super
 
-    method! expr ln e acu =
-      let+ e = super#expr ln e acu in
+    method! core_expr pos ln e acu =
+      let+ e = super#core_expr pos ln e acu in
 
-      let rec flatten_expr acu = function
+      let rec flatten_expr acu e = match e.v with
         | Seq (_,el) -> flatten_el acu el
-        | x -> x :: acu
+        | _ -> e :: acu
 
       and flatten_el acu el = List.fold_left flatten_expr acu el in
       
@@ -66,7 +81,7 @@ let flatten_seq =
         let flat = List.rev (flatten_el [] el) in
         begin match List.filter (fun e -> not (is_id id_null e)) flat with
           | [] -> Id id_null
-          | [e] -> e
+          | [e] -> e.v
           | el -> Seq (true,el)
         end
         
@@ -78,41 +93,51 @@ let flatten_seq =
 let id_true = Ast_env.id_true
 let id_false = Ast_env.id_false
 
-let expr_not e = App (Value Builtins.bnot, [ ([], e) ])
+let expr_not e = App ({ pos = e.pos ; v = Value Builtins.bnot }, [ ([], e) ])
 
 type costs = cost loc list
 
 let norm_keep_semantics =
-  object(o)
+  object(_o)
     inherit [costs] tree_mapper accumulates as super
        
     (* Tautology : X = True instead of X *)
-    method! expr ln e acu =
-      match e with
-      | App (e, nel) ->
-        let { rval = (ee, neel) ; acu } = o#app (e, nel) acu in
-        
-        begin match ee, neel with
+    method! core_expr pos ln e acu =
+
+      let re = super#core_expr pos ln e acu in
+      let acu = re.acu in
+      
+      match re.rval with
+      | App (ee, neel) ->
+        begin match ee.v, neel with
           | Value op, [ ([], e1) ; ([], e2) ] when op == Builtins.equal ->
 
             (* True = e2 => e2 *)
-            if is_id id_true e1 then return e2 acu (* return e2 (mkloc (e1.pos.start, e1.pos.endp) Tautology :: acu) *)
+            if is_id id_true e1 then return e2.v (mkloc (e1.pos.start, ee.pos.endp) Tautology :: acu)
 
             (* e1 = True => e1 *)
-            else if is_id id_true e2 then return e1 acu
+            else if is_id id_true e2 then return e1.v (mkloc (ee.pos.start, e2.pos.endp) Tautology :: acu)
 
             (* False = e2 => not e2 *)
-            else if is_id id_false e1 then return (expr_not e2) acu
+            else if is_id id_false e1 then return (expr_not e2) (mkloc (e1.pos.start, ee.pos.endp) Style_boolean :: acu)
 
             (* e1 = False => not e1 *)
-            else if is_id id_false e2 then return (expr_not e1) acu
+            else if is_id id_false e2 then return (expr_not e1) (mkloc (ee.pos.start, e2.pos.endp) Style_boolean :: acu)
           
-            else return (App (ee, neel)) acu
+            else re
                 
-          | _ -> return (App (ee, neel)) acu
+          | _ -> re
         end
-         
-      | _ -> super#expr ln e acu
+
+      | Assign ( { v = Id id1 ; _ } , e2) ->
+        if is_id id1 e2 then return (Id id_null) ( { pos ; v = Null } :: acu)
+        else re
+
+      | If (_, e2, e3) ->
+        if is_null e2 && is_null e3 then return (Id id_null) ( { pos ; v = Useless_if } :: acu)
+        else re
+        
+      | _ -> re
 
   end
       

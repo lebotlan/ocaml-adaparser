@@ -16,4 +16,6 @@ val procdecl2s: procdecl -> string
 val pfile2s: file pv -> string
 
 val expr2s: margin:string -> expr -> string
+
+val core_expr2s: margin:string -> core_expr -> string
   

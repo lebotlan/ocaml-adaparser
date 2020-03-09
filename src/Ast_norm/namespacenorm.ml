@@ -14,13 +14,6 @@ open Astmap
 open Ast_env
 open Use_env
 
-(* TODO : 
- *    - option pour inclure dans les sous-programmes les définitions globales qui y sont utilisées.
- *   -  => constantes, autres fonctions
- *   -  => attention, si on définit un type il peut apparaître.
- *   -  => récupérer une fonction = (defs préliminaires + la fonction)
-*)
-
 type path = string
 
 
@@ -29,7 +22,7 @@ type path = string
  * We keep track of what has been replaced. *)
 type replaced =
   (* R_select (original, replacement) *)
-  | R_select of loc_ident * expr
+  | R_select of loc_ident * core_expr
 
   (* R_longid (original, replacement) *)
   | R_longid of long_ident * long_ident
@@ -65,7 +58,7 @@ let replacekey2s = function
   | K_longid li -> "L[" ^ li2s li ^ "]"
 
 let replaced2s = function
-  | R_select (l, e) -> l2s l ^ " -> " ^ Astprint.expr2s ~margin:"" e
+  | R_select (l, e) -> l2s l ^ " -> " ^ Astprint.core_expr2s ~margin:"" e
   | R_longid (li1, li2) -> li2s li1 ^ " => " ^ li2s li2
 
 let get_key_loc = function
@@ -193,7 +186,7 @@ let qualified_ids_map =
      * P1 is an expr_id, P2, P3, fun are selectors. 
      * P1 can be expanded, not P2, P3, fun. 
      * If expanded, it must be replaced by a Select. *)
-    method! expr ln e acu = match e with
+    method! core_expr pos ln e acu = match e with
       | Id i ->
 
         (* Printf.printf "\nConsidering Expr_id(%s)  current ACU is \n%s\n\n%!" (l2s i) (nmspace2s acu) ; *)
@@ -203,11 +196,11 @@ let qualified_ids_map =
           | Some [] -> assert false
           | Some (i1 :: iz) ->
             (* Printf.printf " -> Some %s\n\n%!" (li2s (i1 :: iz)) ;  *)
-            let e2 = List.fold_left (fun ee ii -> Select (ee, ii)) (Id i1) iz in
+            let e2 = List.fold_left (fun ee ii -> Select ({ pos ; v = ee }, ii)) (Id i1) iz in
             return e2 (insert_assoc acu (K_select i1) (R_select (i, e2)))
         end
         
-      | _ -> super#expr ln e acu
+      | _ -> super#core_expr pos ln e acu
 
 
     (*** Record local names. ***)

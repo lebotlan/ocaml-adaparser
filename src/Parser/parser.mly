@@ -48,6 +48,8 @@ let get_num num =
     end
 
     (* let get_int num = Adavalue.get_int (get_num num) *)
+
+let mkvalue pos v = mkloc pos (Value v)
                       
 %}
 
@@ -320,13 +322,13 @@ mode:
 procdef:
 |      pd = procdecl IS
            declarations=pl_declarations
-       BEGIN
+        BEGIN
            body=exn_block?    
            coms=END endname=loc_ident? SEMI
 							
                          { let>= body =
 		             match body with
-		             | None -> pv ~err:(mkloc $loc(body) (Missing "body")) vun
+		             | None -> pv ~err:(mkloc $loc(body) (Missing "body")) (mkloc $loc(body) vun)
 		             | Some b -> b
 
 			   and>= decl = pd in
@@ -349,7 +351,7 @@ procdef:
                        pv ~err:(mkloc $loc (Empty (kw ^ i2s decl.procname.v)))
 			  { decl ;
                             declarations = pv [] ;
-                            body = vun ;
+                            body = mkloc $loc vun ;
                             proc_comments = coms } }
 
 
@@ -413,12 +415,17 @@ type_expr:
 
 (***********************  STATEMENTS  ************************)
 
-block: pl=p_nonempty_list(statement)                   { let>> l = pl in Seq (true,l) }
+core_block: pl=p_nonempty_list(statement)               { let>> l = pl in Seq (true,l) }
 
-exn_block: pb=block e=exn_handler?                      { match e with None -> pb
+block: b=core_block                                     { let>> b = b in mkloc $loc b }
+
+
+exn_block: b=core_exn_block                             { let>> b = b in mkloc $loc b }
+
+core_exn_block: pb=core_block e=exn_handler?            { match e with None -> pb
                                                                      | Some pl ->
 									let>> l = pl and>= b = pb in
-									Try (b,l) }
+									Try (mkloc $loc(pb) b,l) }
 
 exn_handler:
 | EXCEPTION l=p_nonempty_list(when_clause)   { l }
@@ -427,14 +434,16 @@ in_or_of:
 | IN                          { `IN }
 | OF                          { `OF }
 
-statement: 
-| DELAY e=expr SEMI                                                { pv (App (Value Builtins.delay, [([], e)])) }
-| RAISE e=expr SEMI                                                { pv (App (Value Builtins.araise, [([], e)])) }
-| RAISE SEMI                                                       { pv (App (Value Builtins.araise, [])) }
-| GOTO e=expr SEMI                                                 { pv (App (Value Builtins.goto, [([], e)])) }
+statement: s=core_statement                             { let>> s = s in mkloc $loc s }
+
+core_statement: 
+| _v=DELAY e=expr SEMI                                                { pv (App (mkvalue $loc(_v) Builtins.delay, [([], e)])) }
+| _v=RAISE e=expr SEMI                                                { pv (App (mkvalue $loc(_v) Builtins.araise, [([], e)])) }
+| _v=RAISE SEMI                                                       { pv (App (mkvalue $loc(_v) Builtins.araise, [])) }
+| _v=GOTO e=expr SEMI                                                 { pv (App (mkvalue $loc(_v) Builtins.goto, [([], e)])) }
 | EXIT SEMI                                                        { pv (Id (mkloc $loc i_exit)) }
               
-| e=expr SEMI                                                      { pv e }                 
+| e=core_expr SEMI                                                 { pv e }                 
 
 | e1=expr ASSIGN e2=expr SEMI                                      { pv (Assign (e1, e2)) }
 
@@ -445,7 +454,7 @@ statement:
 						     
 | WHILE e=expr LOOP ps=block END LOOP SEMI                         { let>> s = ps in While (e, s) }
 
-| LOOP ps=block END LOOP SEMI                                      { let>> s = ps in While (Id (mkloc $loc i_exit), s) }
+| _l=LOOP ps=block END LOOP SEMI                                      { let>> s = ps in While (mkloc $loc(_l) (Id (mkloc $loc(_l) i_exit)), s) }
 
 | bl=block_label? DECLARE
       pdecl=pl_declarations
@@ -463,14 +472,14 @@ statement:
 | CASE e=expr IS pl=p_nonempty_list(when_clause) END CASE SEMI     { let>> l = pl in Case (e, l) }
 
 | RETURN e=expr SEMI                                               { pv (Return e) }
-| RETURN SEMI                                                      { pv (Return vun) }
+| RETURN SEMI                                                      { pv (Return (mkloc $loc vun)) }
 
 | BEGIN ps=exn_block END SEMI                                      { let>> s = ps in Declare (pv [], s) }
              
 elsif:
-| ELSIF e1=expr THEN ps1=block ps2=elsif                           { let>> s1 = ps1 and>= s2 = ps2 in If (e1, s1, s2) }
+| ELSIF e1=expr THEN ps1=block ps2=elsif                           { let>> s1 = ps1 and>= s2 = ps2 in mkloc $loc (If (e1, s1, s2)) }
 | ELSE s2=block                                                    { s2 }
-| empty                                                            { pv vun }
+| empty                                                            { pv (mkloc $loc vun) }
 
 
 block_label: i=loc_ident COLON                                     { i }
@@ -488,30 +497,34 @@ imply_block:  IMPLY ps=block                                      { fun lbl l ->
 
 (***********************  EXPRESSIONS  ************************)
 
+dot_expr: e=core_dot_expr                        { mkloc $loc e }
+
 (* Expressions which may be followed by a DOT or PARENTHESIS *)
-dot_expr:
-| v=adavalue                                { Value v }					    
-| l=loc_ident                               { Id l }
+core_dot_expr:
+| v=adavalue                                    { Value v }					    
+| l=loc_ident                                   { Id l }
 | e=dot_expr DOT l=loc_ident                { Select (e, l) }
 | e=dot_expr a=parlist(nexpr, COMMA)        { App (e, a) }
-| l=parlist(nexpr, COMMA)                   { Tuple l }
+| l=parlist(nexpr, COMMA)                       { Tuple l }
 | e1=dot_expr TICK l=loc_ident              { Tick (e1,l) }
-                        
-expr:
-| e=dot_expr                                { e }
-| NEW l=dotted_name                         { New (l, []) }
+
+expr: e=core_expr                            { mkloc $loc e }
+
+core_expr:
+| e=core_dot_expr                                    { e }
+| NEW l=dotted_name                             { New (l, []) }
 | NEW n=dotted_name TICK e=dot_expr         { New (n, [e]) }
 | NEW n=dotted_name a=parlist(expr, COMMA)  { New (n, a) }
-| e1=expr op=INFIX_OP e2=expr               { App (Value op, [ ([], e1) ; ([], e2) ]) }
-| op=PREFIX_OP e=expr                       { App (Value op, [ ([], e) ]) }
-| e=expr IN r=expr                          { Is_in (e, r) }
-| e=expr NOT IN r=expr                      { App (Value bnot, [ ([], Is_in (e, r)) ]) }
+| e1=expr op=INFIX_OP e2=expr           { App (mkvalue $loc(op) op, [ ([], e1) ; ([], e2) ]) }
+| op=PREFIX_OP e=expr                       { App (mkvalue $loc(op) op, [ ([], e) ]) }
+| e=expr IN r=expr                      { Is_in (e, r) }
+| e=expr _n=NOT IN r=expr                  { App (mkvalue $loc(_n) bnot, [ ([], mkloc $loc(r) (Is_in (e, r))) ]) }
 
 (* Range expressions *)                                     
-| BRAKET                                    { Unconstrained }
-| e1=dot_expr DOTDOT e2=expr                { Interval(e1, e2) }
-| e1=dot_expr RANGE e2=expr                 { Range(e1, e2) }
-| e=dot_expr TICKRANGE i=pars(pnum)?        { TickRange(e, Common.option_map i get_num) }
+| BRAKET                                     { Unconstrained }
+| e1=dot_expr DOTDOT e2=expr         { Interval(e1, e2) }
+| e1=dot_expr RANGE e2=expr          { Range(e1, e2) }
+| e=dot_expr TICKRANGE i=pars(pnum)?     { TickRange(e, Common.option_map i get_num) }
                     
 nexpr:
 | e=expr                                    { ([], e) }
