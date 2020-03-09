@@ -219,7 +219,7 @@ and core_expr2s ~margin = function
     margin ^ "end case"
 
   | Seq (o,l) ->
-    let (first, last) = if o then "{", "}" else "[", "]" in
+    let (first, last) = if o then "[", "]" else "{", "}" in
     first ^ Common.sep (expr2s ~margin) (" ;\n" ^ margin) l ^ last
 
   | New (id, []) -> "new " ^ li2s id

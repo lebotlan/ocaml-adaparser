@@ -53,6 +53,9 @@ type nmspace =
      *)
     assoc: (replace_key, replaced) Hashtbl.t }
 
+let get_env nm = nm.env
+let get_use_env nm = nm.use
+
 let replacekey2s = function
   | K_select l -> "S[" ^ l2s l ^ "]"
   | K_longid li -> "L[" ^ li2s li ^ "]"

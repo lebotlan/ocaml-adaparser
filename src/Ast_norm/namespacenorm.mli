@@ -20,6 +20,8 @@ type nmspace
 
 val nmspace2s: nmspace -> string
 
+val get_env: nmspace -> Ast_env.env
+val get_use_env: nmspace -> Use_env.use_env
 
 type path = string
 

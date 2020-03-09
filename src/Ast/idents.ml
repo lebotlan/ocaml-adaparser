@@ -14,16 +14,7 @@ let norm s = S.share (Text.lower s)
 
 let empty = S.share ""
 
-let get_li_pos li = match li with
-  | [] -> assert false (* Empty long identifier ? *)
-  | i1 :: _ ->
-    (* Get last one *)
-    let rec loop = function
-      | [] -> assert false
-      | [ik] -> { start = i1.pos.start ; endp = ik.pos.endp }
-      | _ :: rest -> loop rest
-    in
-    loop li
+let get_li_pos li = Loc.range li
 
 (* Identifiers *)
 type loc_ident = s loc
