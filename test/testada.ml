@@ -36,10 +36,11 @@ let run () =
       
       (* Normalise file: qualify, expand var init, flatten seq *)
       let%lwt (p_nfile, defs) = Nm_qualify.all_procdecl ~includedirs p_file in
+      (*
       let p_nfile = (Astnorm.expand_var_init#file p_nfile ()).rval in
       let p_nfile = (Astnorm.norm_keep_semantics#file p_nfile []).rval in
       let p_nfile = (Astnorm.flatten_seq#file p_nfile ()).rval in
-      
+      *)
       Lwt_io.print "\n\n=== Normalized file ===\n\n" ;%lwt
       Lwt_io.printf "\n%s\n" (Astprint.pfile2s p_nfile) ;%lwt
 

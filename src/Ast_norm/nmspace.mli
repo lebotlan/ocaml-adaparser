@@ -19,8 +19,10 @@ class nmenv: env -> use_env ->
     method insert_use: long_ident -> 's
 
     method block_exit: 's -> 's
-    method merge: (acu1:'s -> 's * (acu2:'s -> 's * 'c)) -> 's * 'c
-    method userfun: 's user_fun
+    method merge_pre : 's
+    method merge_mid : 's -> 's
+    method merge_end : 's -> 's -> 's
+    method userfun: 's user_fun        
   end
 
 class ['a] envmap: 'a user_fun ->

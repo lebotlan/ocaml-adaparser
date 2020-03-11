@@ -39,7 +39,7 @@ let block_exit inacu outacu =
 
 let all_procdecl_map =
   object
-    inherit [acudecl] tree_mapper { block_exit ; merge = accumulates.merge }
+    inherit [acudecl] tree_mapper { accumulates with block_exit }
         
     method! use_id li acu = return li { acu with namesp = insert_use li acu.namesp }
     method! pack_rename pr acu = return pr { acu with namesp = insert_pr pr acu.namesp }

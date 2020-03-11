@@ -48,10 +48,10 @@ let remove_decl = function
   | Funrename _ -> false
   | _ -> true
 
-class qenv env use =
+class qenv init_env init_use =
   object(self:'selftype)
 
-    inherit Nmspace.nmenv env use
+    inherit Nmspace.nmenv init_env init_use
     
     (* Keep track of identifiers that were expanded:
      *  replace_key => replaced
@@ -64,13 +64,16 @@ class qenv env use =
       
     method! tos =
       Printf.sprintf "\n----- Namespace -----\n%s\n\n%s\n\nAssoc :\n%s\n--------------------------\n\n"
-        (env2s env) (use_env2s use)
+        (env2s self#get_env) (use_env2s self#get_use_env)
         (Hashtbl.fold (fun key rep acu -> acu ^ "    " ^ replacekey2s key ^ " : " ^ replaced2s rep ^ "\n") assoc "")
 
     (* Receives a loc ident. Replace it by a (relocated) qualified name. *)
     method qualify_id ~warn i =
+      
+      (* Printf.printf "\n\n ==> Qualify %s\nCurrent env is :\n%s\n%!" (l2s i) (self#tos) ; *)
+      
       (* Is it a name in the current environment? *)
-      match env_find env i with
+      match env_find self#get_env i with
       | Some (Forid | Whenid | Arg _) -> None (* Do nothing *) 
       | Some (Decl (Withclause _ | Packnew _ | Package _ | Typedef _ | Subtype _ | Procdef _ | Procdecl _ | Vardef _)) -> None (* Do nothing *)
       | Some (Decl (Rename    pr)) -> Some (reloc i.pos pr.pack_orig)
@@ -78,7 +81,7 @@ class qenv env use =
       | None ->     
         (* Unknown identifier.
          * Is it a visible identifier in some opened package? *)
-        begin match use_env_binds use i with
+        begin match use_env_binds self#get_use_env i with
           | [ (li, _) ] -> Some (reloc i.pos li)
           | [] ->
             (* Unknown identifier *)
@@ -157,9 +160,7 @@ class ['a] qmap (userfun: 'a user_fun) =
   end
 
 let init_nmspace includedirs list =
-
   let%lwt puse = Use_env.empty_use_env includedirs list in
-  
   Lwt.return
     (let>> use = puse in
      new qenv builtin_env use)

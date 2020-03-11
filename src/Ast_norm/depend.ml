@@ -30,18 +30,9 @@ class denv env use_env =
       {< reads = filter_out reads ;
          writes = filter_out writes >}         
 
-    (* inacu#block_exit outacu *)
     method! block_exit outacu = ((super#block_exit outacu)#clone_from outacu)#filters o#get_env outacu#get_env
-
-    (* acu0#merge f *)
-    method! merge f =
-      let (acu1, g) = f ~acu1:o in
-      (*      let (acu2, c) = g ~acu2:({< defs = acu1#get_defs >}#clone_from acu1) in *)
-      let (acu2, c) = g ~acu2:(o#clone_from acu1) in
-      
-(*      let acu = {< defs = acu2#get_defs >}#clone_from acu2 in  *)
-      let acu = o#clone_from acu2 in
-      (acu, c)
+    method! merge_mid acu1 = (super#merge_mid acu1)#clone_from acu1        
+    method! merge_end acu1 acu2 = (super#merge_end acu1 acu2)#clone_from acu2
 
     method write i = {< writes = i :: writes >}
     

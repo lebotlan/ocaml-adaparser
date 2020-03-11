@@ -11,14 +11,14 @@ open Ast_env
 open Use_env
 
 
-class nmenv (env:env) (use:use_env) =
+class nmenv (env_init:env) (use_init:use_env) =
   object(self:'s)
         
     (* Environment : variables, arguments, ...*)
-    val env = env
+    val env = env_init
 
     (* Opened packages (use) *)
-    val use = use
+    val use = use_init
 
     (* All procdefs. *)
     val defs = ([] : ('s * procdef) list) ;
@@ -33,22 +33,26 @@ class nmenv (env:env) (use:use_env) =
 
     method insert_env i tp = {< env = insert_env env i tp >}
     method insert_use li   = {< use = insert_use use li >}
+    
     method insert_def def  = {< defs = def :: defs >}
 
     (* inacu#block_exit outacu *)
     method block_exit (outacu:'s) = {< defs = outacu#get_defs >}
 
-    (* acu0#merge f *)
-    method merge:'c . (acu1:('s as 'a) -> 'a * (acu2:'a -> 'a * 'c)) -> 'a * 'c  = fun f ->
-      let (acu1, g) = f ~acu1:self in
-      let (acu2, c) = g ~acu2:{< defs = acu1#get_defs >} in
-      
-      let acu = {< defs = acu2#get_defs >} in 
-      (acu, c)
+    (* acu0#merge_pre *)
+    method merge_pre = self
 
-    method userfun =
+    (* acu0#merge_mid acu1 *)
+    method merge_mid (acu1:'s) = {< defs = acu1#get_defs >}
+
+    (* acu0#merge_end acu1 acu2 *)
+    method merge_end (_:'s) (acu2:'s) = {< defs = acu2#get_defs >}
+    
+    method userfun : 's user_fun =
       { block_exit = (fun inacu outacu -> inacu#block_exit outacu) ;
-        merge = (fun ~acu0:(acu0:'s) f -> acu0#merge f) }
+        merge_pre = (fun ~acu0 -> acu0#merge_pre) ;
+        merge_mid = (fun ~acu0 ~acu1 -> acu0#merge_mid acu1) ;
+        merge_end = (fun ~acu0 ~acu1 ~acu2 -> acu0#merge_end acu1 acu2) }
 
   end
 

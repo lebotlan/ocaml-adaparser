@@ -11,9 +11,10 @@
  *    - control-flow sensitive data, e.g. a list of variable currently in scope that may have been (resp. were certainly) modified.
  *                  such data depends on the control flow. It must be merged at junction points (IF, WHILE).
  *
- * The user is expected to redefine two methods in order to define how acu data is propagated:
- *      #block_exit  : what happens when exiting the current block (a block is e.g. a then part or a else part in C or Java: one may define local variables there. In Ada blocks are more explicit, though.)
- *      #merge       : what happens when two control flows merge.
+ * The user is expected to provide several functions in order to define how acu data is propagated:
+ *      block_exit  : what happens when exiting the current block (a block is e.g. a then part or a else part in C or Java: one may define local variables there. In Ada blocks are more explicit, though.)
+ *      merge       : what happens when two control flows merge.
+ *                    the function merge actually consists in three parts: merge_pre, merge_mid, merge_end (see below)
  *
  *)
 open Astlib
@@ -47,10 +48,12 @@ type ('v,'a) mapper = 'v -> 'a -> ('v,'a) ret
  *           acu2 -> right-branch -> acu2'
  *           then acu0, acu1', acu2' are merged into some final acu.
  *
- *   - Merge must have a polymorphic type, which guarantees that the left & right branches were actually invoked.
+ *   - merge_pre takes acu0 and returns acu1
+ *   - merge_mid takes acu0, acu1' and returns acu2
+ *   - merge_end takes acu0, acu1', acu2', and returns the final acu.
  *
  *  (Note that both left & right functions called by merge actually build a new acu _and_ a new value.
- *   The new value is used internally to built the subtree, but is eventually hidden from the merge function.
+ *   The new value is used internally to built the subtree, but is eventually hidden from the merge functions.
  *   Hence, the real control flow is a bit intricate, but hopefully nicely hidden from the user).
  *
  * *)
@@ -59,51 +62,34 @@ type 'a user_fun =
      * It must return the final acu. *)
     block_exit: 'a -> 'a -> 'a ;
 
-    (* The type 'c is only a witness that merge actually called both functions. 
+    (*
      * acu0 is the initial acu (before branches)
-     * acu1 is the acu passed to the left branch.
-     * acu2 is the acu passed to the right branch. 
-     *
-     * Expected invariants when merge is "called" with two functions f and g:
-     *      - symmetric: merge acu f g should be equivalent merge acu g f
-     *      - associative: merge acu (acu -> merge acu (f,g)) h  should be equivalent to merge acu f (acu -> merge acu (g,h))
-     *
-     * merge is expected to be somewhat associative (used to merge n branches in CASE statements, for instance). *)
-    merge: 'c . acu0:'a -> (acu1:'a -> 'a * (acu2:'a -> 'a * 'c)) -> ('a * 'c)
+     * acu1 is the acu result of the left branch.
+     * acu2 is the acu result of the right branch. 
+     *)
+    merge_pre: acu0:'a -> 'a ;
+    merge_mid: acu0:'a -> acu1:'a -> 'a ;
+    merge_end: acu0:'a -> acu1:'a -> acu2:'a -> 'a ;
+
+    (* Note : merge_mid is highly expected to behave like block_exit *)
+    
   }
 
-(*
-   Examples: 
-       (* Accumulates *)
-       let block_exit _inacu outacu = outacu
-
-       (* Accumulates *)
-       let merge ~acu0 f =
-          let (acu2, g) = f ~acu1:acu0 in
-          g ~acu2
-
-       (* Reset (e.g. list of scope variables) *)
-       let block_exit inacu _outacu = inacu
-*)
-
 let accumulates =
-  let merge ~acu0 f =
-    let (acu2, g) = f ~acu1:acu0 in
-    g ~acu2
-
+  let merge_pre ~acu0 = acu0
+  and merge_mid ~acu0:_ ~acu1 = acu1
+  and merge_end ~acu0:_ ~acu1:_ ~acu2 = acu2
   and block_exit _inacu outacu = outacu in
 
-  { block_exit ; merge }
+  { block_exit ; merge_pre ; merge_mid ; merge_end }
 
 let scoped =
-  let merge ~acu0 f =
-    let (_, g) = f ~acu1:acu0 in
-    let (_, c) = g ~acu2:acu0 in
-    (acu0, c)
-
+  let merge_pre ~acu0 = acu0
+  and merge_mid ~acu0 ~acu1:_ = acu0
+  and merge_end ~acu0 ~acu1:_ ~acu2:_ = acu0
   and block_exit inacu _outacu = inacu in
 
-  { block_exit ; merge }
+  { block_exit ; merge_pre ; merge_mid ; merge_end }
 
 (* Monadic helper functions *)
 let return v acu = { rval = v ; acu }
@@ -218,21 +204,13 @@ class ['a] tree_mapper user_fun =
 
   (* Strange bug: if let++ is defined here, compilation fails with some error. 
    * Instead, we define a nice-looking letpp function, and we have to define let++ each time we need it. *)
-  let letpp (f,g) k acu =
+  let letpp (f,g) k acu0 =
 
-    let merge_kont1 ~acu1 =
-      let rx = f acu1 in
-
-      let merge_kont2 ~acu2 =
-        let ry = g acu2 in
-        (ry.acu, (rx.rval, ry.rval))
-      in
-
-      (rx.acu, merge_kont2)
-    in
-    
-    let (final_acu, (x,y)) = user_fun.merge ~acu0:acu merge_kont1 in
-    return (k (x, y)) final_acu
+    let rx = f (user_fun.merge_pre ~acu0) in
+    let ry = g (user_fun.merge_mid ~acu0 ~acu1:rx.acu) in
+    let final_acu = user_fun.merge_end ~acu0 ~acu1:rx.acu ~acu2:ry.acu in
+       
+    return (k (rx.rval, ry.rval)) final_acu
   in
 
   (* Applies letpp iteratively on a list. *)

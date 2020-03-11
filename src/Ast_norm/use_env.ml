@@ -79,10 +79,12 @@ let filter_public d = match d with
 (* Take the defs associated to name in the environment. 
  * Update them: apply function fupd (and possibly open the package). *)
 let update_defs opened env name fupd =
+
   let rec loop = function
     | [] -> [ { pack_name = name ; opened ; defs = fupd [] } ]
     | d1 :: ds ->
-      if Idents.long_equal d1.pack_name name then { d1 with defs = fupd d1.defs ; opened = opened || d1.opened } :: ds
+      if Idents.long_equal d1.pack_name name then
+        { d1 with defs = fupd d1.defs ; opened = opened || d1.opened } :: ds
       else d1 :: loop ds
   in
   { env with ads = loop env.ads }

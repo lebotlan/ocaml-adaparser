@@ -15,7 +15,9 @@ type ('v, 'a) mapper = 'v -> 'a -> ('v, 'a) ret
 
 type 'a user_fun =
   { block_exit: 'a -> 'a -> 'a ;
-    merge: 'c . acu0:'a -> (acu1:'a -> 'a * (acu2:'a -> 'a * 'c)) -> ('a * 'c) }
+    merge_pre: acu0:'a -> 'a ;
+    merge_mid: acu0:'a -> acu1:'a -> 'a ;
+    merge_end: acu0:'a -> acu1:'a -> acu2:'a -> 'a }
 
 (* This is an example which simply accumulates. *)
 val accumulates: 'a user_fun
