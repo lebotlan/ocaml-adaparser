@@ -60,3 +60,11 @@ let (id_null, _) = pnull
 let id_true = mkid "true"
 let id_false = mkid "false"
     
+let diff env1 env2 =
+  let rec loop acu e2 =
+    if env1 == e2 then acu
+    else match e2 with
+      | [] -> failwith "Ast_env.diff: not a sub-environment."
+      | (i, _) :: xs -> loop (i :: acu) xs
+  in
+  loop [] env2

@@ -73,7 +73,7 @@ class qenv env use =
       match env_find env i with
       | Some (Forid | Whenid | Arg _) -> None (* Do nothing *) 
       | Some (Decl (Withclause _ | Packnew _ | Package _ | Typedef _ | Subtype _ | Procdef _ | Procdecl _ | Vardef _)) -> None (* Do nothing *)
-      | Some (Decl (Rename pr)) -> Some (reloc i.pos pr.pack_orig)
+      | Some (Decl (Rename    pr)) -> Some (reloc i.pos pr.pack_orig)
       | Some (Decl (Funrename fr)) -> Some (reloc i.pos fr.fun_orig)
       | None ->     
         (* Unknown identifier.

@@ -43,3 +43,9 @@ val env2s: env -> string
 
 val map_env: env -> (id_typ -> id_typ) -> env
   
+
+(* diff env1 env2: 
+ *   - env2 is supposed to be built upon env1
+ *   - returns the list of identifiers that were defined by env2.
+ *)
+val diff: env -> env -> loc_ident list
