@@ -24,7 +24,9 @@ val s_equal: s -> s -> bool
 
 val long_equal: long_ident -> long_ident -> bool
 
-val get_li_pos: long_ident -> Loc.pos
+val get_li_pos: long_ident -> pos
+
+val reloc: pos -> long_ident -> long_ident
 
 (* Predefined identifiers *)
 

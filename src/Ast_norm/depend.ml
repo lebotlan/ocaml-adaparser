@@ -1,10 +1,10 @@
-open Namespacenorm
+open Nm_qualify
 open Astlib
 open Idents
 open Ast
     
 type effects =
-  { nms: nmspace ;
+  { nms: qenv ;
     expr: expr ;
     read: loc_ident list ;
     writes: loc_ident list ;

@@ -48,3 +48,6 @@ let pack2file li =
   match sub res 0 2 with
   | "a-" | "g-" | "i-" | "s-" -> get res 0 ^ "~" ^ sub res 2 (len - 2)
   | _ -> res
+
+let reloc pos li = List.map (fun i -> { i with pos } ) li
+    

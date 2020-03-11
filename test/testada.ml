@@ -35,7 +35,7 @@ let run () =
       Lwt_list.iter_s (fun err -> Lwt_io.printf " * %s\n" (lp2s err)) errs.errors ;%lwt
       
       (* Normalise file: qualify, expand var init, flatten seq *)
-      let%lwt (p_nfile, defs) = Namespacenorm.all_procdecl ~includedirs p_file in
+      let%lwt (p_nfile, defs) = Nm_qualify.all_procdecl ~includedirs p_file in
       let p_nfile = (Astnorm.expand_var_init#file p_nfile ()).rval in
       let p_nfile = (Astnorm.norm_keep_semantics#file p_nfile []).rval in
       let p_nfile = (Astnorm.flatten_seq#file p_nfile ()).rval in
