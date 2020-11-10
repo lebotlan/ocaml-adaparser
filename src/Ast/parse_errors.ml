@@ -9,6 +9,7 @@ type parser_error =
   | Empty of string
   | Not_long_identifier
   | Cannot_find of Idents.long_ident
+  | Unexpected_exn of exn
 
 let err2s = function
   | Mismatch (s1, s2) -> "Expected " ^ s2 ^ " but found " ^ s1
@@ -19,6 +20,7 @@ let err2s = function
   | Misplaced s -> "Misplaced " ^ s
   | Bad_symbol s -> "Bad symbol " ^ s
   | Cannot_find li -> "Cannot find package " ^ (Idents.li2s li)
+  | Unexpected_exn e -> "Unexpected_exn " ^ (Printexc.to_string e)
                            
 exception Syntax_error of parser_error loc
 
@@ -37,10 +39,12 @@ type 'a pv =
   { pv: 'a ;
     errors: lp_error list }
 
-let pv ?err x =
-  let errors = match err with
-    | None -> []
-    | Some e -> [e]
+let pv ?cperr ?err x =
+  let errors = match cperr,err with
+    | None,None -> []
+    | None, Some e -> [e]
+    | Some pv, None -> pv.errors
+    | Some pv, Some e -> e :: pv.errors
   in
   { pv = x ; errors }
 

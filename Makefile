@@ -3,8 +3,8 @@
 all:	test 
 
 test:
-	dune build test/testada.exe test/readall.exe test/testads.exe
-	cp _build/default/test/*.exe .
+	dune build test/testada.exe test/readall.exe test/testads.exe test/cmp_all.exe
+	ln -fs _build/default/test/*.exe .
 
 clean:
 	find -L . -name "*~" -delete

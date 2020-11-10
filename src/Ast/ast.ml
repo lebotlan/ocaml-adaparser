@@ -142,8 +142,14 @@ and core_expr =
   (* Immediate value (includes unit) *)
   | Value of expr adavalue
 
-  (* Variable name *)
+  (* Short variable name *)
   | Id of loc_ident
+
+  (* package.ident 
+   * 'Qualified' are not produced by the parser. 
+   *
+   * Maybe Qualified(empty, i) should be replaced by Id(i) ... ? *)
+  | Qualified of long_ident * loc_ident
 
   (* Record or array *)
   | Tuple of nexpr list
@@ -162,6 +168,9 @@ and core_expr =
 
   (* e1'attribute *)
   | Tick of expr * loc_ident
+
+  (* type'(expr) = cast expr to type *)
+  | Typetick of expr * expr
 
   | If of expr * expr * expr
   | While of expr * expr

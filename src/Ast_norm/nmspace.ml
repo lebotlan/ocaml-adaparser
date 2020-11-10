@@ -7,34 +7,51 @@ open Astlib
 open Ast
 open Astreader
 open Astmap
-open Ast_env
-open Use_env
+open Loc_env
+open Package_env
 
+class nmenv (env_init:decl_env) (pckenv_init:pck_env) =
 
-class nmenv (env_init:env) (use_init:use_env) =
   object(self:'s)
         
     (* Environment : variables, arguments, ...*)
-    val env = env_init
+    val decl_env = env_init
 
     (* Opened packages (use) *)
-    val use = use_init
+    val pckenv = pckenv_init
 
     (* All procdefs. *)
     val defs = ([] : ('s * procdef) list) ;
-    
-    method get_env = env
-    method get_use_env = use
+
+    method get_decl_env = decl_env
+    method get_pck_env = pckenv
     method get_defs = defs
       
     method tos =
       Printf.sprintf "\n----- Namespace -----\n%s\n\n%s\n\n--------------------------\n\n"
-        (env2s env) (use_env2s use)
+        (env2s decl_env) (pck_env2s pckenv)
 
-    method insert_env i tp = {< env = insert_env env i tp >}
-    method insert_use li   = {< use = insert_use use li >}
-    
-    method insert_def def  = {< defs = def :: defs >}
+    method insert_env i tp = {< decl_env = insert_env decl_env i tp >}
+    method insert_use li = {< pckenv = insert_use pckenv li >}    
+    method insert_def def = {< defs = def :: defs >}
+
+    method insert_with li =
+      let first = match li with
+        | [] -> assert false (* Empty package name ? *)
+        | ii :: _ -> ii
+      in
+      
+      (* Check the package is known. *)
+      let _ = Package_env.pck_find pckenv li in
+      
+      (* Package A *)
+      let pack = Package_env.pck_find pckenv [first] in
+      
+      self#insert_env first (Decl pack.found_pack.ads_decl)
+
+    method init =
+      Common.myfold (opened pckenv_init) self
+        (fun me pack -> me#insert_with pack.found_pack.qualified)
 
     (* inacu#block_exit outacu *)
     method block_exit (outacu:'s) = {< defs = outacu#get_defs >}
@@ -61,20 +78,8 @@ class ['a] envmap (userfun: 'a user_fun) =
     constraint 'a = #nmenv
       
     inherit ['a] tree_mapper userfun as super
-      
-    (* With: the first package name is now bound in the environment. *)
-    method! with_id li acu =
-      (* I don't think li should be expanded first. 
-       * If needed, invoke self#expand_longid (instead of acu#expand_longig) *)
-      (*      let- (li, acu) = acu#expand_longid ~warn:false li in *)
 
-      let- (li, acu) = return li acu in
-      
-      let first = match li with
-        | [] -> assert false (* Empty package name ? *)
-        | ii :: _ -> ii
-      in      
-      acu#insert_env first (Decl (Use_env.empty_package first))
+    method! with_id li acu = return li (acu#insert_with li)
     
     method! use_id li acu =
       let- (li, acu) = self#long_id li acu in

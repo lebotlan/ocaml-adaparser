@@ -1,6 +1,6 @@
 (library
  (name adanorm)
- (public_name adanorm)
+ (public_name adaparser.astnorm)
  
  (libraries astlib adaparser astreader lwtutils)
 

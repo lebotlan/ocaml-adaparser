@@ -2,7 +2,7 @@
 
 (*
  * Accumulators may contain different kinds of data:
- *    - persistent data, e.g. counting the total number of ADDitions in the whole program.
+ *    - persistent data, e.g. counting the total number of constants in the whole program.
  *                       such data is never reset, always propagated as such.
  *
  *    - scoped data, e.g. a list of the variables currently in scope
@@ -12,7 +12,7 @@
  *                  such data depends on the control flow. It must be merged at junction points (IF, WHILE).
  *
  * The user is expected to provide several functions in order to define how acu data is propagated:
- *      block_exit  : what happens when exiting the current block (a block is e.g. a then part or a else part in C or Java: one may define local variables there. In Ada blocks are more explicit, though.)
+ *      block_exit  : what happens when exiting the current block (a block is e.g. a then part or a else part in C or Java: one may define local variables there. In Ada blocks are more explicit.)
  *      merge       : what happens when two control flows merge.
  *                    the function merge actually consists in three parts: merge_pre, merge_mid, merge_end (see below)
  *
@@ -28,7 +28,7 @@ type ('v,'a) ret =
     rval: 'v ;
     acu: 'a }
 
-(* A mapper receives the current subtree 'v, the current acu.
+(* A mapper receives the current subtree 'v and the current acu.
  * It returns a mapped subtree and a new acu. *)
 type ('v,'a) mapper = 'v -> 'a -> ('v,'a) ret
 
@@ -135,9 +135,8 @@ type arg_kind =
    *    A procdef binds the arguments in its body.
    *   
    *    A procdef first invokes #arg with Proc_arg false (for the declaration),    (A)
-   *    then it invokes #arg with Proc_arg true for the body <- with the mapped arguments returned by (A)
-   *         Proc_arg true => it is the second time these arguments are seen, and these may have already been mapped.
-   *                          they are not supposed to be mapped again
+   *    then it invokes #arg with Proc_arg true for the body <- with the qualified arguments returned by (A)
+   *         Proc_arg true => it is the second time these arguments are seen, and these may have already been qualified.
    *  
    *)
   | Proc_arg of bool
@@ -182,6 +181,27 @@ type label_namespace =
   (* Everything else (standard expression) 
    * S = Standard *)
   | S
+
+
+
+(* There are different kind of expressions (e.g. left-hand part of an assignment).
+ * This type indicates what the current context is. *)
+type expr_context =
+  { label_nm: label_namespace ;
+    as_pos: as_pos ;
+  }
+
+(* Position in an assignment *)
+and as_pos =
+  (* Not an assignment, or right-hand side *)
+  | RHS
+
+  (* LHS, and this expression is a leftmost subterm of the lhs term.
+   *  e.g.  a.b.c(x+y).d := 0     leftmost subterms are : a.b.c(x+y).d   a.b.c(x+y)  a.b.c  a.b  a   but not x+y *)
+  | LHS_leftmost
+
+(* Default context for expressions. *)
+let d_ctxt = { label_nm = S ; as_pos = RHS }
 
 let find_nexpr_kind = function
   (* Empty nexpr, we don't care. *)
@@ -242,109 +262,113 @@ class ['a] tree_mapper user_fun =
 
     method block: 'v . 'a -> ('v,'a) ret -> ('v,'a) ret = fun acu ret -> block acu ret
 
-    method declare_expr e acu = o#expr S e acu
-    method proc_body e acu = o#expr S e acu
+    method declare_expr e acu = o#expr d_ctxt e acu
+    method proc_body e acu = o#expr d_ctxt e acu
 
-    method expr ln e acu =
-      let+ v = o#core_expr e.pos ln e.v acu in
+    method expr ctxt e acu =
+      let+ v = o#core_expr e.pos ctxt e.v acu in
       { v ; pos = e.pos }
     
-    method core_expr _pos ln e acu =
+    method core_expr _pos ctxt e acu =
       let (let++) u v w = letpp u v w in
       
       match e with
       | Value v -> let+ v = o#adavalue v acu in Value v
 
-      | Id li -> let+ li = o#expr_id ln li acu in Id li
+      | Id li -> let+ li = o#expr_id ctxt li acu in Id li
+      | Qualified (li,i) ->
+        let+ li = o#long_id li acu in
+        Qualified (li, i)
 
-      | Select (e, id) ->
-        let+ ee = o#expr S e acu
-        and+ iid = o#select_id id in
-        Select (ee, iid)
+      | Select (e, id) -> let+ (ee, iid) = o#select ctxt (e, id) acu in Select (ee, iid)          
+      | App (e, nel) -> let+ (e2, nel2) = o#app ctxt (e, nel) acu in App (e2, nel2)
 
       | For (oi,rev,id,e1,e2) ->
         (* A FOR defines a block. *)
         block acu
-          (let+ ee1 = o#expr S e1 acu                      
+          (let+ ee1 = o#expr d_ctxt e1 acu                      
            (* The for identifier scope is e2 only, hence it comes second. *)
            and+ iid = o#for_id id 
-           and+ ee2 = o#expr S e2 in
+           and+ ee2 = o#expr d_ctxt e2 in
 
            For (oi,rev,iid,ee1,ee2))    
 
       | New (li, el) ->
         let+ lid = o#new_id li acu 
-        and+ l = list (o#expr S) el in
+        and+ l = list (o#expr d_ctxt) el in
         New (lid, l)
 
       | If (e1, e2, e3) ->        
-        let= ee1 = o#expr S e1 acu in
+        let= ee1 = o#expr d_ctxt e1 acu in
 
         (* let++  merges the left and right branches 
          * Also, e2 and e3 are considered as blocks. *)
-        let++ (ee2, ee3) = (mkblock (o#expr S e2),
-                            mkblock (o#expr S e3))
+        let++ (ee2, ee3) = (mkblock (o#expr d_ctxt e2),
+                            mkblock (o#expr d_ctxt e3))
         in
         If (ee1, ee2, ee3)
 
       | While (e1, e2) ->
-        let= ee1 = o#expr S e1 acu in
+        let= ee1 = o#expr d_ctxt e1 acu in
 
         (* e2 is a block *)
-        let++ (ee2, ()) = (mkblock (o#expr S e2), return ()) in
+        let++ (ee2, ()) = (mkblock (o#expr d_ctxt e2), return ()) in
         While (ee1, ee2)
 
       | Assign (e1, e2) ->
-        let+ ee1 = o#expr S e1 acu 
-        and+ ee2 = o#expr S e2 in
+        let+ ee1 = o#expr { label_nm = S ; as_pos = LHS_leftmost } e1 acu 
+        and+ ee2 = o#expr d_ctxt e2 in
         Assign (ee1, ee2)
 
       | Tick (e, l) ->
-        let+ ee = o#expr S e acu
+        let+ ee = o#expr ctxt e acu
         and+ ll = o#attribute l in
         Tick (ee, ll)
 
+      | Typetick (e1, e2) ->
+        let+ ee1 = o#expr ctxt e1 acu
+        and+ ee2 = o#expr ctxt e2 in
+        Typetick (ee1, ee2)
+
       | Is_in (e1, e2) ->
-        let+ ee1 = o#expr S e1 acu
-        and+ ee2 = o#expr S e2 in
+        let+ ee1 = o#expr d_ctxt e1 acu
+        and+ ee2 = o#expr d_ctxt e2 in
         Is_in (ee1, ee2)
 
-      | Seq (ord,el) -> let+ l = list (o#expr S) el acu in Seq (ord,l)
+      | Seq (ord,el) -> let+ l = list (o#expr d_ctxt) el acu in Seq (ord,l)
 
-      | Tuple nel -> let+ l = list o#nexpr nel acu in Tuple l
+      | Tuple nel -> let+ l = list (o#nexpr ctxt) nel acu in Tuple l
 
-      | App (e, nel) -> let+ (e2, nel2) = o#app (e, nel) acu in App (e2, nel2)
+      | Exitwhen e -> let+ ee = o#expr d_ctxt e acu in Exitwhen ee
 
-      | Exitwhen e -> let+ ee = o#expr S e acu in Exitwhen ee
-
-      | Return e -> let+ ee = o#expr S e acu in Return ee
+      | Return e -> let+ ee = o#expr d_ctxt e acu in Return ee
 
       | Declare (dl,e) -> let+ (dl2, e2) = o#declare (dl, e) acu in Declare (dl2, e2)
 
       | Case (e, ws) ->
-        let+ ee = o#expr S e acu
+        let+ ee = o#expr d_ctxt e acu
         and+ ww = mergelist o#whenc ws in
         Case (ee, ww)
 
       | Try (e, ws) ->
-        let+ ee = o#expr S e acu 
+        let+ ee = o#expr d_ctxt e acu 
         and+ ww = mergelist o#whenc ws in
         Try (ee, ww)
 
       | Unconstrained -> return Unconstrained acu
 
       | Interval (e1, e2) ->
-        let+ ee1 = o#expr S e1 acu 
-        and+ ee2 = o#expr S e2 in
+        let+ ee1 = o#expr d_ctxt e1 acu 
+        and+ ee2 = o#expr d_ctxt e2 in
         Interval (ee1, ee2)
 
       | Range (e1, e2) ->
-        let+ ee1 = o#expr S e1 acu 
-        and+ ee2 = o#expr S e2 in
+        let+ ee1 = o#expr d_ctxt e1 acu 
+        and+ ee2 = o#expr d_ctxt e2 in
         Range (ee1, ee2)
 
       | TickRange (e, avo) ->
-        let+ ee = o#expr S e acu 
+        let+ ee = o#expr d_ctxt e acu 
         and+ vvo = option o#adavalue avo in
         TickRange (ee, vvo)
 
@@ -358,30 +382,36 @@ class ['a] tree_mapper user_fun =
      * but no builtin or function. *)
     method adavalue v acu = return v acu
 
-    method app (e, nel) acu =
-      let+ ee = o#expr S e acu 
-      and+ l = list o#nexpr nel in
+    method select ctxt (e, id) acu =
+      let+ ee = o#expr ctxt e acu
+      and+ iid = o#select_id id in
+      (ee, iid)
+
+    
+    method app ctxt (e, nel) acu =
+      let+ ee = o#expr ctxt e acu 
+      and+ l = list (o#nexpr d_ctxt) nel in
       (ee, l)
     
     method whenc (Match (ido, el, e)) acu =      
-      let+ l = list (o#expr S) el acu
+      let+ l = list (o#expr d_ctxt) el acu
 
       (* ido binds a new name. There is a block here. *)
       and+ (ido2, ee) = mkblock (fun acu ->
           let+ ido2 = option o#when_id ido acu
-          and+ ee = o#expr S e in
+          and+ ee = o#expr d_ctxt e in
           (ido2, ee))
       in
       Match (ido2, l, ee)
         
-    method nexpr (lbl, e) acu =
+    method nexpr ctxt (lbl, e) acu =
       let k = find_nexpr_kind lbl in      
-      let+ a = list (o#expr k) lbl acu
-      and+ b = o#expr S e in
+      let+ a = list (o#expr { ctxt with label_nm = k }) lbl acu
+      and+ b = o#expr d_ctxt e in
       (a,b)
     
     (* Id expr *)
-    method expr_id _ln li acu = return li acu
+    method expr_id _ctxt li acu = return li acu
 
     method lbl_id id acu = return id acu
 
@@ -389,7 +419,7 @@ class ['a] tree_mapper user_fun =
     
     (* pack rename, pack new, ltype, ... *)
     method long_id li acu = return li acu
-
+    
     method typename = o#long_id
 
     (* Subtype t is xxx (this is xxx): *)
@@ -450,7 +480,7 @@ class ['a] tree_mapper user_fun =
         and+ (d,c,io) = mkblock (fun acu ->
             let+ d = o#pl_declarations In_package pc.package_declarations acu
             and+ c = o#comments pc.package_comments 
-            and+ io = option (o#expr S) pc.package_init in
+            and+ io = option (o#expr d_ctxt) pc.package_init in
             (d,c,io))
         in
         
@@ -495,7 +525,7 @@ class ['a] tree_mapper user_fun =
       let+ v = o#var_id vardef.varname acu
       and+ t = o#type_expr vardef.vartype 
       and+ c = option o#subconstraint vardef.constrain
-      and+ i = option (o#expr S) vardef.vinit in
+      and+ i = option (o#expr d_ctxt) vardef.vinit in
       
       { varname = v ;
         const = vardef.const ;
@@ -509,12 +539,12 @@ class ['a] tree_mapper user_fun =
       | Typename li -> let+ n = o#typename li acu in Typename n
       | Enumerate en -> let+ en = list o#enumerate_value en acu in Enumerate en
       | Record vdl -> let+ vdl = list o#record_field vdl acu in Record vdl
-      | Array (rgs, cell) -> let+ rgs = list (o#expr S) rgs acu and+ n = o#typename cell in Array (rgs, n)
+      | Array (rgs, cell) -> let+ rgs = list (o#expr d_ctxt) rgs acu and+ n = o#typename cell in Array (rgs, n)
       | Delta (v1, v2) -> let+ v1 = o#adavalue v1 acu and+ v2 = o#adavalue v2 in Delta (v1, v2)
 
     method subconstraint sub acu = match sub with
-      | Index_constraint el -> let+ eel = list (o#expr S) el acu in Index_constraint eel
-      | Range_constraint e -> let+ ee = o#expr S e acu in Range_constraint ee    
+      | Index_constraint el -> let+ eel = list (o#expr d_ctxt) el acu in Index_constraint eel
+      | Range_constraint e -> let+ ee = o#expr d_ctxt e acu in Range_constraint ee    
 
     method procdecl kind decl acu =
       let+ p = o#procname kind decl.procname acu
@@ -525,10 +555,11 @@ class ['a] tree_mapper user_fun =
         args = al ;
         rettype = r }
 
+    (* Remember #arg is invoked twice. See the introduction. *)
     method arg kind a acu =
       let+ n = o#argname kind a.argname acu
       and+ t = o#typename a.argtype
-      and+ eo = option (o#expr S) a.argdefault in
+      and+ eo = option (o#expr d_ctxt) a.argdefault in
       
       { argname = n ;
         argtype = t ;
@@ -566,8 +597,9 @@ class ['a] tree_mapper user_fun =
             and+ b = o#proc_body def.body
             and+ c = o#comments def.proc_comments
             in
-            
-            assert (al = d.args) ; (* Arguments must not be mapped again. They should have been mapped in procdecl *)
+
+            (* Arguments must not be mapped again. They should have been mapped in procdecl *)
+            assert (List.for_all2 (fun arg1 arg2 -> Idents.equal arg1.argname arg2.argname && Idents.long_equal arg1.argtype arg2.argtype) al d.args) ; 
             
             (dl,b,c)) acu
         in

@@ -1,0 +1,32 @@
+
+Cost           : types used to describe normalization costs
+
+Package_env    : environment that records "with packages" and "use packages".
+                 given an id, finds which package(s) define it.
+		 == keeps track of known packages and of USEs
+
+Loc_env        : decl_env == environment mapping identifiers to their declaration (local var, for, argument, decl in package)
+                 because we must not qualify a local identifier
+		 == keeps track of all identifiers defined locally
+
+Nmspace        : Keep track of the current namespace, using loc_env & package_env.
+                 Offers an extensible tree_mapper.
+
+Nm_qualify     : Qualifies all possible identifiers (prefix them with their package), using nmspace.
+
+Depend         : find dependencies between expressions, so that they can be reordered.
+
+Astnorm        : normalizing functions
+                    - flatten sequences
+		    - expand var inits
+		    - other normalisation (see Cost)
+
+Normfile       : Call in sequence the appropriate normalizing functions.
+
+
+
+
+-- To be done...
+
+Unify
+

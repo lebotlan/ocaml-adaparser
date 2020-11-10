@@ -1,6 +1,6 @@
 (library
  (name astreader)
- (public_name astreader)
+ (public_name adaparser.astreader)
  
  (modules astmap astread namespace)
  (libraries astlib))

@@ -62,6 +62,22 @@ let all_wclauses_map =
 let all_wclauses fpv = (all_wclauses_map#content fpv.pv.content []).acu
 
 
+(*** All prodefs ***)
+
+type acu3 = procdef list
+
+let all_procdefs_map =
+  object
+    inherit [acu3] tree_mapper accumulates as super
+    method! procdef def acu =
+      (* Recursive call, otherwise we just get the top-level procedure. *)
+      let- (_,acu) = super#procdef def acu in 
+      def :: acu
+  end
+
+let all_procdefs fpv = (all_procdefs_map#content fpv.pv.content []).acu
+
+
 (*** Declarations in a package spec. *)
 let package_decls f =
 

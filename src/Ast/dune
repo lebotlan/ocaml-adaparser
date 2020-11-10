@@ -1,6 +1,6 @@
 (library
  (name astlib)
- (public_name astlib)
+ (public_name adaparser.astlib)
  
- (modules loc idents parse_errors ast astprint)
+ (modules loc idents parse_errors ast astprint asttool astcmp)
  (libraries compiler-libs.common shared_vals adavalues))

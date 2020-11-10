@@ -3,6 +3,8 @@ open Ast
 open Parse_errors
 open Adavalues
 
+let verbose = ref false
+
 (* Indentation *)
 let indent = "   "
 
@@ -159,24 +161,29 @@ and subconstraint2s = function
 
 and expr2s ~margin locexp = core_expr2s ~margin locexp.v
 
-and core_expr2s ~margin = function
-  | Value av -> Adavalue.tos ~margin av
-  | Id id -> "Id(" ^ l2s id ^ ")"
+and core_expr2s ~margin e =
+  let vv s k = if !verbose then s ^ "(" ^ k ^ ")" else k in
+  
+  match e with
+  | Value av -> vv "Value" (Adavalue.tos ~margin av)
+  | Id id -> vv "Id" (l2s id)
+  | Qualified (li, i) -> vv "Qid" (li2s li ^ "." ^ l2s i)
   | Assign (e1, e2) -> Printf.sprintf "%s := %s" (expr2s ~margin:"" e1) (expr2s ~margin:"" e2)
   | Return  e -> Printf.sprintf "return %s" (expr2s ~margin e)
 
-  | Tuple nels -> "(" ^ Common.sep (nexpr2s ~margin:(margin ^ " ")) ", " nels ^ ")"
+  | Tuple nels -> vv "Tuple" ("(" ^ Common.sep (nexpr2s ~margin:(margin ^ " ")) ", " nels ^ ")")
 
   (* Infix binary op *)
   | App ( { v = Value av ; _ } , [ ([], e1) ; ([], e2) ]) ->
-    expr2s ~margin e1 ^ " " ^ Adavalue.tos ~margin av ^ " " ^ expr2s ~margin e2
+    vv "App-bin" (expr2s ~margin e1 ^ " " ^ Adavalue.tos ~margin av ^ " " ^ expr2s ~margin e2)
 
   | App (e, nels) ->
     let pre = expr2s ~margin e in
-    pre ^ "(" ^ Common.sep (nexpr2s ~margin:(margin ^ space 1 pre)) ", " nels ^ ")"
+    vv "App" (pre ^ "(" ^ Common.sep (nexpr2s ~margin:(margin ^ space 1 pre)) ", " nels ^ ")")
 
-  | Select (e, l) -> expr2s ~margin e ^ "." ^ (l2s l)
-  | Tick (e, l)   -> expr2s ~margin e ^ "'" ^ (l2s l)
+  | Select (e, l) -> vv "Select" (expr2s ~margin e ^ "." ^ (l2s l))
+  | Tick (e, l)   -> vv "Tick" (expr2s ~margin e ^ "'" ^ (l2s l))
+  | Typetick (e1, e2) -> vv "Typetick" (expr2s ~margin e1 ^ "'(" ^ (expr2s ~margin:"" e2) ^ ")")
 
   | If (e1, e2, e3) ->
     let margin' = margin ^ indent in
@@ -219,13 +226,12 @@ and core_expr2s ~margin = function
     margin ^ "end case"
 
   | Seq (o,l) ->
-    let (first, last) = if o then "[", "]" else "{", "}" in
-    first ^ Common.sep (expr2s ~margin) (" ;\n" ^ margin) l ^ last
+    vv (if o then "seqo" else "sequ") (Common.sep (expr2s ~margin) (" ;\n" ^ margin) l)
 
   | New (id, []) -> "new " ^ li2s id
   | New (id, l) -> "new " ^ li2s id ^ "'(" ^ Common.sep (expr2s ~margin:"") ", " l ^ ")"
 
-  | Is_in (e, range) -> expr2s ~margin e ^ " in " ^ expr2s ~margin:""  range
+  | Is_in (e, range) -> vv "is_in" (expr2s ~margin e ^ " in " ^ expr2s ~margin:""  range)
 
   | Try (e, whens) ->
     let margin' = margin ^ indent in

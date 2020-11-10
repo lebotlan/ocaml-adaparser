@@ -1,5 +1,4 @@
 open Astlib
-open Ast
 open Adaparser
 open Readfile
 open Astreader
@@ -15,7 +14,7 @@ let test_proc =
     out = Some "Blabla.Float"
   }
 
-let includedirs = [ "Ada" ; "/home/commetud/1ere Annee/ADA/Sources/GAda/" ]
+let includedirs = [ "include" ; "include/Act1" ; "Ada" ; "/mnt/commetud/1ere Annee/ADA/Sources/GAda/" ]
 
 let run () =
   if Array.length Sys.argv <> 2 then
@@ -33,21 +32,33 @@ let run () =
       let errs = all_errors p_file in
       Lwt_io.print "\n=== ERRORS ===\n\n" ;%lwt
       Lwt_list.iter_s (fun err -> Lwt_io.printf " * %s\n" (lp2s err)) errs.errors ;%lwt
+
+      let () = Astprint.verbose := true in
       
       (* Normalise file: qualify, expand var init, flatten seq *)
-      let%lwt (p_nfile, defs) = Nm_qualify.all_procdecl ~includedirs p_file in
-      (*
+      let%lwt (pu, p_nfile) = Nm_qualify.n_file ~includedirs ~var_prefix:"v" p_file in
       let p_nfile = (Astnorm.expand_var_init#file p_nfile ()).rval in
+      let p_nfile = (Astnorm.flatten_seq#file p_nfile ()).rval in
       let p_nfile = (Astnorm.norm_keep_semantics#file p_nfile []).rval in
       let p_nfile = (Astnorm.flatten_seq#file p_nfile ()).rval in
-      *)
+
+      Lwt_io.print "\n=== ADS ERRORS ===\n\n" ;%lwt
+      Lwt_list.iter_s (fun err -> Lwt_io.printf " * %s\n" (lp2s err)) pu.errors ;%lwt
+
+
+      Printf.printf "\n --- DEPEND ---\n\n%!" ;
+      
+      (* let p_nfile = Depend.unseq_file qenv p_nfile in *)      
+      
       Lwt_io.print "\n\n=== Normalized file ===\n\n" ;%lwt
       Lwt_io.printf "\n%s\n" (Astprint.pfile2s p_nfile) ;%lwt
 
       (* Print definitions *)
+      (*
       Lwt_io.print "\n\n=== Definitions ===\n\n" ;%lwt
       Lwt_list.iter_s (fun (_,d) -> Lwt_io.printf " * %s\n\n" (Astprint.procdecl2s d.decl)) defs ;%lwt
-
+*)
+      
       (* Compliance tests with hard-coded signature *)
       Lwt_io.printf "\n\nCompliance test (skipped).\n" ;%lwt
 (*

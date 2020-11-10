@@ -1,6 +1,6 @@
 (library
  (name sigtest)
- (public_name sigtest)
+ (public_name adaparser.sigtest)
  
  (modules sigtest)
  (libraries astlib astreader adasig))

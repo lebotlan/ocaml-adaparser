@@ -9,7 +9,8 @@ type id_typ =
   | Whenid
   | Arg of arg
 
-type env = (loc_ident * id_typ) list
+type decl_env = (loc_ident * id_typ) list
+type env = decl_env
 
 let empty_env = []
 
@@ -17,7 +18,7 @@ let same_name i (i2, _) = Idents.equal i i2
 
 let trim = String.trim
 
-let map_env env f = List.map (fun (i,t) -> (i, f t)) env
+(* let map_env env f = List.map (fun (i,t) -> (i, f t)) env *)
 
 let insert_env ?(may_replace=true) env i typ =
   if (not may_replace) && List.exists (same_name i) env then
@@ -37,29 +38,7 @@ let id_typ2s = function
 
 let env2s env = Common.sep (fun (i, t) -> Printf.sprintf "%s (%s)" (l2s i) (id_typ2s t)) " ; " env
 
-
-let mkbt name =
-  let t_name = Loc.mkbuiltin (Idents.norm name) in
-  (t_name, Decl (Typedef { t_name ; t_args = [] ; t_body = Abstract ; t_constrain = None }))
-
-let mkid name = Loc.mkbuiltin (Idents.norm name)
-
-let pnull =
-  let procname = mkid "null" in
-  (procname, Decl (Procdecl { procname ; args = [] ; rettype = None }))
-
-               
-(* String: should be an alias to an array type. 
- * Boolean: should be an enumeration type. *)
-let builtin_env =
-  [ mkbt "Integer" ; mkbt "Float" ; mkbt "Boolean" ; mkbt "String" ;
-    pnull ;
-  ]
-
-let (id_null, _) = pnull
-let id_true = mkid "true"
-let id_false = mkid "false"
-    
+(*
 let diff env1 env2 =
   let rec loop acu e2 =
     if env1 == e2 then acu
@@ -68,3 +47,5 @@ let diff env1 env2 =
       | (i, _) :: xs -> loop (i :: acu) xs
   in
   loop [] env2
+*)
+    

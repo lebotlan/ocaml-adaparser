@@ -1,7 +1,8 @@
-open Nmspace
+(* open Nmspace
 open Astlib
 open Idents
 open Ast
+open Parse_errors
     
 (*** Finds dependencies between expressions. ***)
 
@@ -14,7 +15,7 @@ type effects =
     denv: denv ;
     expr: expr ;
 
-    (* Local variables, read/written by this expression. *)
+    (* Identifiers read or written by this expression. *)
     reads: loc_ident list ;
     writes: loc_ident list ;
 
@@ -34,10 +35,15 @@ val get_effects: denv -> expr -> effects
 val commutable: effects -> effects -> bool
 
 (* Receives an ordered sequence (containing no subsequence),
- * returns an ordered sequence possibly containing unordered subsequences. *)
+ * returns an ordered sequence possibly containing unordered subsequences, 
+ * or just an unordered sequence. *)
 val cut_seq: denv -> expr list -> expr list
 
 
-
 (* Transforms sequences in this procedure using cut_seq. *)
-val unseq_proc: (#nmenv * procdef) -> procdef
+(* val unseq_proc: (#nmenv * procdef) -> procdef *)
+
+(* nmenv provides the cache only. *)
+val unseq_file: #nmenv -> file pv -> file pv
+  
+   *)

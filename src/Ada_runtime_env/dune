@@ -1,6 +1,6 @@
 (library
  (name adaenv)  
- (public_name adaenv)
+ (public_name adaparser.env)
 (modules adaenv))
 
  

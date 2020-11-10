@@ -24,6 +24,9 @@ type parser_error =
   (* A .ads file cannot be found *)
   | Cannot_find of Idents.long_ident
 
+  (* Something terrible happened. *)
+  | Unexpected_exn of exn
+
 val err2s: parser_error -> string
 
 type lp_error = parser_error Loc.loc
@@ -42,8 +45,9 @@ type 'a pv =
 
 (*** Parse-error monad ***)
 
-(* Returns a value with/without errors. *)
-val pv: ?err:lp_error -> 'a -> 'a pv
+(* Returns a value with/without errors. 
+ * cperr: copy errors from this pv. *)
+val pv: ?cperr:_ pv -> ?err:lp_error -> 'a -> 'a pv
 
 val map: 'a pv -> ('a -> 'b) -> 'b pv
 

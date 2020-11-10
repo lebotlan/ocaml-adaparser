@@ -1,6 +1,6 @@
 (library
  (name adabuiltins)
- (public_name adabuiltins)
+ (public_name adaparser.builtins)
  
  (modules builtins)
  (libraries adavalues astlib))

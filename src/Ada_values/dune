@@ -1,6 +1,6 @@
 (library
  (name adavalues)
- (public_name adavalues)
+ (public_name adaparser.values)
  
  (libraries unix common adaenv))
 

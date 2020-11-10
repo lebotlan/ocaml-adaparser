@@ -1,6 +1,8 @@
 open Ast
 open Parse_errors
 
+val verbose: bool ref
+
 val packrenames: margin:string -> pack_rename -> string
 
 val funrenames: margin:string -> fun_rename -> string

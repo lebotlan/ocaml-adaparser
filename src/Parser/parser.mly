@@ -166,8 +166,8 @@ p_list(ELT):
 (* Localized identifier *)
 %inline loc_ident:
 | id=IDENT { mkloc $loc id }
-| ALL      { mkloc $loc all }
-| ACCESS   { mkloc $loc access }
+| ALL      { mkloc $loc i_all }
+| ACCESS   { mkloc $loc i_access }
 
 %inline simple_loc_ident:
 | id=IDENT { mkloc $loc id }
@@ -386,7 +386,7 @@ vartype: t=type_expr c=subt_constraint?    { (t, c) }
 typename:
 | t=dotted_name                    { t }
 (*| ALIASED t=dotted_name                    { t } *)
-| ACCESS ALL? t=typename           { (mkloc $loc access) :: t  }
+| ACCESS ALL? t=typename           { (mkloc $loc i_access) :: t  }
 | t=typename TICK i=loc_ident      { t @ [i] }
 | EXCEPTION                        { [mkloc $loc i_exception] }
                       
@@ -501,14 +501,15 @@ dot_expr: e=core_dot_expr                        { mkloc $loc e }
 
 (* Expressions which may be followed by a DOT or PARENTHESIS *)
 core_dot_expr:
-| v=adavalue                                    { Value v }					    
-| l=loc_ident                                   { Id l }
+| v=adavalue                                { Value v }					    
+| l=loc_ident                               { Id l }
 | e=dot_expr DOT l=loc_ident                { Select (e, l) }
 | e=dot_expr a=parlist(nexpr, COMMA)        { App (e, a) }
-| l=parlist(nexpr, COMMA)                       { Tuple l }
+| l=parlist(nexpr, COMMA)                   { Tuple l }
 | e1=dot_expr TICK l=loc_ident              { Tick (e1,l) }
+| e1=dot_expr TICK e2=pars(expr)            { Typetick (e1,e2) }
 
-expr: e=core_expr                            { mkloc $loc e }
+expr: e=core_expr                           { mkloc $loc e }
 
 core_expr:
 | e=core_dot_expr                                    { e }
@@ -516,23 +517,23 @@ core_expr:
 | NEW n=dotted_name TICK e=dot_expr         { New (n, [e]) }
 | NEW n=dotted_name a=parlist(expr, COMMA)  { New (n, a) }
 | e1=expr op=INFIX_OP e2=expr           { App (mkvalue $loc(op) op, [ ([], e1) ; ([], e2) ]) }
-| op=PREFIX_OP e=expr                       { App (mkvalue $loc(op) op, [ ([], e) ]) }
+| op=PREFIX_OP e=expr                   { App (mkvalue $loc(op) op, [ ([], e) ]) }
 | e=expr IN r=expr                      { Is_in (e, r) }
-| e=expr _n=NOT IN r=expr                  { App (mkvalue $loc(_n) bnot, [ ([], mkloc $loc(r) (Is_in (e, r))) ]) }
+| e=expr _n=NOT IN r=expr               { App (mkvalue $loc(_n) bnot, [ ([], mkloc $loc(r) (Is_in (e, r))) ]) }
 
 (* Range expressions *)                                     
-| BRAKET                                     { Unconstrained }
-| e1=dot_expr DOTDOT e2=expr         { Interval(e1, e2) }
-| e1=dot_expr RANGE e2=expr          { Range(e1, e2) }
-| e=dot_expr TICKRANGE i=pars(pnum)?     { TickRange(e, Common.option_map i get_num) }
+| BRAKET                                { Unconstrained }
+| e1=dot_expr DOTDOT e2=expr            { Interval(e1, e2) }
+| e1=dot_expr RANGE e2=expr             { Range(e1, e2) }
+| e=dot_expr TICKRANGE i=pars(pnum)?    { TickRange(e, Common.option_map i get_num) }
                     
 nexpr:
-| e=expr                                    { ([], e) }
-| l=label IMPLY e=expr                      { (l, e) }
+| e=expr                                { ([], e) }
+| l=label IMPLY e=expr                  { (l, e) }
 
 label:
-| e=expr                                    { [e] }
-| e1=expr BAR l=label                       { e1 :: l }
+| e=expr                                { [e] }
+| e1=expr BAR l=label                   { e1 :: l }
 
 adavalue:
 | n=pnum                               { get_num n }
